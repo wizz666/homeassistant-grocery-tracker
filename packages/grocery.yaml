@@ -1,0 +1,136 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Grocery Tracker – HA Package
+# ─────────────────────────────────────────────────────────────────────────────
+# Innehåller:
+#  • Lovelace resource (scanner-kortet)
+#  • Automationer för ESP32-scanner (kök=add, sopor=remove)
+#  • Automation för USB-scanner via input_text
+#  • Daglig kyl-rapport (backup om pyscript-timern missar)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Lovelace resource registreras via UI:
+#   Inställningar → Dashboards → ⋮ → Resurser → Lägg till
+#   URL: /local/grocery-scanner-card.js   Typ: JavaScript-modul
+#
+# ELLER via configuration.yaml (frontend: extra_module_url):
+#   Se kommentar i slutet av filen.
+
+# ── USB-scanner helper ────────────────────────────────────────────────────────
+# USB-streckkodsläsare skriver streckkod + Enter i detta fält.
+# Sätt focus på fältet i en dedikerad dashboard-panel.
+input_text:
+  grocery_usb_barcode:
+    name: "USB Streckkodsläsare"
+    icon: mdi:barcode-scan
+    max: 50
+
+# ── Automationer ──────────────────────────────────────────────────────────────
+automation:
+
+  # USB-scanner: När input_text ändras → lägg till vara
+  - id: grocery_usb_scan_add
+    alias: "Grocery – USB Scanner: Lägg till vara"
+    description: "USB-streckkodsläsare vid kyl/skafferi lägger till i lager"
+    trigger:
+      - platform: state
+        entity_id: input_text.grocery_usb_barcode
+    condition:
+      - condition: template
+        value_template: "{{ trigger.to_state.state | length > 4 }}"
+    action:
+      - service: pyscript.grocery_scan_add
+        data:
+          barcode: "{{ trigger.to_state.state | trim }}"
+          source: "usb_scanner"
+      # Rensa fältet efter scanning
+      - service: input_text.set_value
+        target:
+          entity_id: input_text.grocery_usb_barcode
+        data:
+          value: ""
+    mode: queued
+
+  # ESP32 Kök-scanner: Lägg till vara
+  # ESPHome skickar event: grocery_scan  med data: {barcode: "...", source: "kitchen_scanner"}
+  - id: grocery_esp32_kitchen_add
+    alias: "Grocery – ESP32 Kök: Lägg till vara"
+    description: "ESP32 + GM65 vid köket skannar när man packar upp varor"
+    trigger:
+      - platform: event
+        event_type: grocery_scan
+        event_data:
+          action: "add"
+    action:
+      - service: pyscript.grocery_scan_add
+        data:
+          barcode: "{{ trigger.event.data.barcode }}"
+          source: "{{ trigger.event.data.source | default('kitchen_scanner') }}"
+    mode: queued
+
+  # ESP32 Sop-scanner: Ta bort vara
+  - id: grocery_esp32_trash_remove
+    alias: "Grocery – ESP32 Sopor: Ta bort vara"
+    description: "ESP32 + GM65 vid sopkorgen skannar när man slänger förpackningar"
+    trigger:
+      - platform: event
+        event_type: grocery_scan
+        event_data:
+          action: "remove"
+    action:
+      - service: pyscript.grocery_scan_remove
+        data:
+          barcode: "{{ trigger.event.data.barcode }}"
+          source: "{{ trigger.event.data.source | default('trash_scanner') }}"
+    mode: queued
+
+  # Daglig uppdatering av sensorer vid midnatt (backup)
+  - id: grocery_midnight_refresh
+    alias: "Grocery – Uppdatera sensorer vid midnatt"
+    trigger:
+      - platform: time
+        at: "00:05:00"
+    action:
+      - service: pyscript.grocery_refresh
+    mode: single
+
+  # ── iOS Genvägar (Shortcuts) – Webhook ─────────────────────────────────────
+  # iPhone skickar POST till /api/webhook/grocery_add eller /api/webhook/grocery_remove
+  # Body (JSON): { "barcode": "7310500143006" }
+  # Webhook-ID:n måste matcha exakt det som konfigureras i iOS Genvägar-appen.
+
+  - id: grocery_webhook_add
+    alias: "Grocery – Webhook: Lägg till vara (iOS)"
+    description: "Tar emot streckkod från iOS Genvägar och lägger till i lager"
+    trigger:
+      - platform: webhook
+        webhook_id: grocery_add
+        allowed_methods:
+          - POST
+        local_only: false
+    action:
+      - service: pyscript.grocery_scan_add
+        data:
+          barcode: "{{ trigger.json.barcode | default(trigger.data.barcode) }}"
+          source: "ios_shortcut"
+    mode: queued
+
+  - id: grocery_webhook_remove
+    alias: "Grocery – Webhook: Ta bort vara (iOS)"
+    description: "Tar emot streckkod från iOS Genvägar och tar bort från lager"
+    trigger:
+      - platform: webhook
+        webhook_id: grocery_remove
+        allowed_methods:
+          - POST
+        local_only: false
+    action:
+      - service: pyscript.grocery_scan_remove
+        data:
+          barcode: "{{ trigger.json.barcode | default(trigger.data.barcode) }}"
+          source: "ios_shortcut"
+    mode: queued
+
+# ── Notis-konfiguration (exempel) ────────────────────────────────────────────
+# Den dagliga 16:00-notisen skickas av pyscript till "notify.notify" (alla enheter).
+# Ändra i grocery_tracker.py → _daily_expiry_check() om du vill rikta till specifik enhet,
+# t.ex. "notify.mobile_app_iphone" eller "notify.mobile_app_pixel"
