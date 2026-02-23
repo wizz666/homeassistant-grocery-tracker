@@ -1,0 +1,146 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Grocery Scanner – KÖK  (Lägg till varor)
+# ─────────────────────────────────────────────────────────────────────────────
+# Hardware:
+#   • ESP32 DevKit v1  (~80 kr)
+#   • GM65 Barcode Scanner Module (~150-200 kr, AliExpress)
+#     – Anslut: GM65 TX → ESP32 GPIO16 (RX2)
+#     –         GM65 RX → ESP32 GPIO17 (TX2)
+#     –         GM65 VCC → 3.3V (eller 5V om modulen kräver)
+#     –         GM65 GND → GND
+#   • Grön LED → GPIO2 (intern LED på de flesta boards)
+#   • Piezo buzzer → GPIO15 (valfritt, för bekräftelsepiip)
+#
+# GM65-inställningar (konfigurera en gång med GM65-appen eller scan-koder):
+#   – Seriell kommunikation: 9600 baud
+#   – Terminator: CR+LF (\r\n)
+#   – Trigger: Auto (skannar kontinuerligt) ELLER Host trigger (knapp)
+# ─────────────────────────────────────────────────────────────────────────────
+
+esphome:
+  name: grocery-kitchen
+  friendly_name: "Matscanner Kök"
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "GroceryKitchen Fallback"
+    password: "grocery123"
+
+captive_portal:
+
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+logger:
+  level: INFO
+
+# ── UART – GM65 Barcode Scanner ───────────────────────────────────────────────
+uart:
+  id: scanner_uart
+  tx_pin: GPIO17
+  rx_pin: GPIO16
+  baud_rate: 9600
+  data_bits: 8
+  parity: NONE
+  stop_bits: 1
+
+# ── Streckkods-sensor ─────────────────────────────────────────────────────────
+text_sensor:
+  - platform: uart
+    id: barcode_raw
+    name: "Streckkod kök (rådata)"
+    uart_id: scanner_uart
+    separator: "\n"          # GM65 skickar CR+LF, vi delar på \n
+    icon: mdi:barcode
+    filters:
+      - lambda: |-
+          // Ta bort \r, mellanslag och tomma rader
+          std::string s = x;
+          s.erase(std::remove(s.begin(), s.end(), '\r'), s.end());
+          s.erase(std::remove(s.begin(), s.end(), ' '), s.end());
+          return s.empty() ? optional<std::string>{} : s;
+    on_value:
+      then:
+        - logger.log:
+            format: "Kök-scanner: streckkod = %s"
+            args: [x.c_str()]
+        # Skicka event till Home Assistant
+        - homeassistant.event:
+            event: grocery_scan
+            data:
+              barcode: !lambda 'return x;'
+              action: "add"
+              source: "kitchen_scanner"
+        # Grön blink + pip
+        - light.turn_on:
+            id: status_led
+            flash_length: 500ms
+        - if:
+            condition:
+              lambda: 'return id(buzzer_enabled);'
+            then:
+              - output.turn_on: buzzer
+              - delay: 80ms
+              - output.turn_off: buzzer
+
+# ── LED-indikator ─────────────────────────────────────────────────────────────
+light:
+  - platform: status_led
+    id: status_led
+    name: "Status LED kök"
+    pin: GPIO2    # Inbyggd LED på de flesta ESP32 DevKit
+
+# ── Piezo buzzer (valfritt) ───────────────────────────────────────────────────
+output:
+  - platform: gpio
+    id: buzzer
+    pin: GPIO15
+
+# ── Knappar ───────────────────────────────────────────────────────────────────
+binary_sensor:
+  # Boot-knapp som manuellt triggar en scan (om GM65 i host-trigger-läge)
+  - platform: gpio
+    pin:
+      number: GPIO0
+      mode: INPUT_PULLUP
+      inverted: true
+    name: "Skanna-knapp kök"
+    on_press:
+      then:
+        # GM65 host trigger-kommando: 0x7E 0x00 0x08 0x01 0x00 0x02 0x01 0xAB 0xCD
+        - uart.write:
+            id: scanner_uart
+            data: [0x7E, 0x00, 0x08, 0x01, 0x00, 0x02, 0x01, 0xAB, 0xCD]
+
+# ── Inställningar ─────────────────────────────────────────────────────────────
+globals:
+  - id: buzzer_enabled
+    type: bool
+    restore_value: true
+    initial_value: 'true'
+
+switch:
+  - platform: template
+    name: "Buzzer aktiv (kök)"
+    id: buzzer_switch
+    lambda: 'return id(buzzer_enabled);'
+    turn_on_action:
+      - globals.set:
+          id: buzzer_enabled
+          value: 'true'
+    turn_off_action:
+      - globals.set:
+          id: buzzer_enabled
+          value: 'false'

@@ -1,0 +1,5 @@
+# Home Assistant
+secrets.yaml
+*.db
+*.log
+__pycache__/
