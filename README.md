@@ -5,7 +5,7 @@
 [![HA Version](https://img.shields.io/badge/HA-2024.1%2B-blue)](https://www.home-assistant.io)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![pyscript](https://img.shields.io/badge/requires-pyscript-orange)](https://github.com/custom-components/pyscript)
-[![Version](https://img.shields.io/badge/version-1.1-brightgreen)]()
+[![Version](https://img.shields.io/badge/version-1.3-brightgreen)]()
 
 **Svenska instruktioner:** [README_SV.md](README_SV.md)
 
@@ -18,6 +18,8 @@
 - 📦 **Track your inventory** — quantity, unit, expiry dates
 - ✏️ **Manual entry** for items without barcodes (eggs, bulk goods)
 - ⚠️ **Daily expiry alerts** at 16:00 listing what's about to expire
+- 🛒 **Shopping list integration** — auto-adds items when they run out or expire
+- 📲 **Push shopping list** to your phone with one tap, opens list directly in HA app
 - 🗑️ **Waste logging** — track what you throw away over time
 - 📱 **iPhone support** via iOS Shortcuts
 - 🔌 **ESP32 stations** — one in the kitchen (add), one at the bin (remove)
@@ -34,6 +36,7 @@
 
 - Home Assistant 2024.1+
 - [pyscript](https://github.com/custom-components/pyscript) (HACS)
+- HA **Shopping List** integration (built-in, required for shopping list features)
 - Internet access (for Open Food Facts lookups)
 
 ---
@@ -51,7 +54,13 @@ pyscript:
   hass_is_global: true
 ```
 
-### 2. Copy files
+### 2. Enable the Shopping List integration
+
+**Settings → Devices & Services → Add integration → search "Shopping List" → Install**
+
+This creates the `todo.shopping_list` entity used for automatic shopping list management.
+
+### 3. Copy files
 
 Copy the following files to your HA config directory:
 
@@ -67,11 +76,26 @@ homeassistant:
   packages: !include_dir_named packages
 ```
 
-### 3. Restart Home Assistant
+### 4. (Optional) Dedicated dashboard
+
+To get a dedicated **Grocery** entry in your HA sidebar, copy `dashboards/grocery.yaml` to `/config/dashboards/grocery.yaml` and add to `configuration.yaml`:
+
+```yaml
+lovelace:
+  dashboards:
+    grocery-dashboard:
+      mode: yaml
+      filename: dashboards/grocery.yaml
+      title: Grocery
+      icon: mdi:fridge
+      show_in_sidebar: true
+```
+
+### 5. Restart Home Assistant
 
 Full restart required: **Settings → System → Restart → Restart Home Assistant**
 
-### 4. Register Lovelace resource
+### 6. Register Lovelace resource
 
 **Settings → Dashboards → ⋮ → Resources → Add resource**
 
@@ -82,9 +106,9 @@ Type: JavaScript module
 
 Hard-refresh your browser after adding.
 
-### 5. Add the card to a dashboard
+### 7. Add the card to a dashboard
 
-Edit any dashboard → Add card → Manual → paste:
+Either use the dedicated dashboard (step 4) or add the card manually:
 
 ```yaml
 type: custom:grocery-scanner-card
@@ -93,7 +117,7 @@ ios_shortcut_add: "Add item"
 ios_shortcut_remove: "Remove item"
 ```
 
-### 6. Verify sensors
+### 8. Verify sensors
 
 **Developer Tools → States** — search `grocery`:
 
@@ -148,6 +172,8 @@ Call these from automations, scripts or Developer Tools:
 | `pyscript.grocery_manual_remove` | `item_id` | Remove item by ID |
 | `pyscript.grocery_set_expiry` | `item_id`, `expiry_date` | Update expiry date |
 | `pyscript.grocery_refresh` | — | Reload inventory from file |
+| `pyscript.grocery_push_shopping_list` | — | Push shopping list as notification to all devices |
+| `pyscript.grocery_generate_shopping_list` | — | Add all expired/expiring items to shopping list |
 
 ---
 
@@ -203,7 +229,9 @@ Inventory is stored as JSON at `/config/grocery_inventory.json`:
 ## Roadmap
 
 - [ ] Claude AI recipe suggestions based on expiring ingredients
-- [ ] Shopping list integration (HA built-in / Todoist)
+- [x] Shopping list integration (HA built-in)
+- [ ] Low-stock alerts (configurable per-item threshold)
+- [ ] Location tags (fridge / freezer / pantry)
 - [ ] ESPHome weight sensors for bulk items (coffee, flour)
 - [ ] Weekly waste statistics dashboard
 - [ ] HACS packaging
@@ -216,6 +244,15 @@ Inventory is stored as JSON at `/config/grocery_inventory.json`:
 - Barcode decoding: [jsQR](https://github.com/cozmo/jsQR) (Apache 2.0)
 
 ## Changelog
+
+### v1.3 (2026-02-24)
+- **New:** Shopping list integration — items automatically added to `todo.shopping_list` when last unit is removed or when they expire
+- **New:** `grocery_push_shopping_list` service — sends current shopping list as push notification with tap-to-open
+- **New:** `grocery_generate_shopping_list` service — manually add all expired/expiring items to shopping list
+- **New:** Dedicated sidebar dashboard (Matlagret) with scanner view and shopping list view
+- **New:** Daily 16:00 alert also auto-adds expiring items to shopping list (once per item, via `shopping_list_suggested` flag)
+- **Fixed:** Shopping list read via `/config/.shopping_list.json` directly (Supervisor API not available in pyscript context)
+- **Requires:** HA Shopping List integration enabled (Settings → Devices & Services → Shopping List)
 
 ### v1.1 (2026-02-24)
 - **Fixed:** pyscript blocks the `open()` builtin — file I/O now uses `pathlib.Path.read_text/write_text` via `task.executor`
