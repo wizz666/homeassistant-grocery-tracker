@@ -6,6 +6,7 @@
 #  • Automationer för ESP32-scanner (kök=add, sopor=remove)
 #  • Automation för USB-scanner via input_text
 #  • Daglig kyl-rapport (backup om pyscript-timern missar)
+#  • Script för push-knapp (inköpslista → telefon)
 # ─────────────────────────────────────────────────────────────────────────────
 
 # Lovelace resource registreras via UI:
@@ -14,6 +15,22 @@
 #
 # ELLER via configuration.yaml (frontend: extra_module_url):
 #   Se kommentar i slutet av filen.
+
+# ── Scripts ───────────────────────────────────────────────────────────────────
+# Används som knapp i dashboard: type: button → tap_action: call-service
+script:
+
+  grocery_push_shopping_list_btn:
+    alias: "Grocery – Skicka inköpslista till telefon"
+    icon: mdi:cart-arrow-right
+    sequence:
+      - service: pyscript.grocery_push_shopping_list
+
+  grocery_generate_shopping_list_btn:
+    alias: "Grocery – Föreslå varor till inköpslistan"
+    icon: mdi:cart-plus
+    sequence:
+      - service: pyscript.grocery_generate_shopping_list
 
 # ── USB-scanner helper ────────────────────────────────────────────────────────
 # USB-streckkodsläsare skriver streckkod + Enter i detta fält.

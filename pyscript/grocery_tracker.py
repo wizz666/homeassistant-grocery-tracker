@@ -1,6 +1,6 @@
 """
-Grocery Tracker – Home Assistant Pyscript
-=========================================
+Grocery Tracker – Home Assistant Pyscript v1.2
+===============================================
 Services:
   pyscript.grocery_scan_add(barcode, quantity=1, expiry_date=None, source="mobile")
   pyscript.grocery_scan_remove(barcode, source="mobile")
@@ -8,20 +8,22 @@ Services:
   pyscript.grocery_manual_remove(item_id)
   pyscript.grocery_set_expiry(item_id, expiry_date)
   pyscript.grocery_refresh()
+  pyscript.grocery_push_shopping_list()   ← NY: skicka inköpslistan som notis
+  pyscript.grocery_generate_shopping_list() ← NY: lägg alla utgångna/snart-utgångna i listan
 
-NOTERING: pyscript blockerar open() som builtin (BUILTIN_EXCLUDE).
-Fil-I/O sker via pathlib.Path.read_text/write_text via task.executor —
-dessa är vanliga Python-metoder (inte pyscript EvalFuncVar) och accepteras av task.executor.
+NOTERING: pyscript blockerar open() (BUILTIN_EXCLUDE).
+Fil-I/O sker via pathlib.Path.read_text/write_text via task.executor.
 """
 
 import json
 import pathlib
 
 INVENTORY_FILE = "/config/grocery_inventory.json"
+SHOPPING_LIST_ENTITY = "todo.shopping_list"
 OFF_API = "https://world.openfoodfacts.org/api/v2/product/{barcode}.json"
-OFF_HEADERS = {"User-Agent": "HomeAssistant-GroceryTracker/1.0 (homeassistant)"}
+OFF_HEADERS = {"User-Agent": "HomeAssistant-GroceryTracker/1.2 (homeassistant)"}
 
-# ─── Fil-I/O via task.executor (pathlib.Path-metoder = vanlig Python, ej EvalFuncVar) ───
+# ─── Fil-I/O via task.executor ────────────────────────────────────────────────
 
 async def _load_inventory():
     try:
@@ -38,10 +40,9 @@ async def _save_inventory(data):
         pathlib.Path(INVENTORY_FILE).write_text, text, encoding="utf-8"
     )
 
-# ─── HTTP-lookup via aiohttp (async, inget task.executor behövs) ─────────────
+# ─── HTTP via aiohttp ─────────────────────────────────────────────────────────
 
 async def _fetch_off(barcode):
-    """Slå upp produkt i Open Food Facts."""
     import aiohttp
     url = OFF_API.format(barcode=barcode)
     try:
@@ -53,7 +54,39 @@ async def _fetch_off(barcode):
         log.warning(f"[GroceryTracker] OFF-lookup misslyckades för {barcode}: {e}")
     return {}
 
-# ─── Synkrona hjälpfunktioner (ingen fil-I/O, anropas direkt) ────────────────
+async def _get_shopping_list_items():
+    """Hämta aktuella inköpslistans varor via Supervisor-proxy."""
+    import aiohttp, os
+    token = os.environ.get("SUPERVISOR_TOKEN", "")
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                "http://supervisor/core/api/services/todo/get_items",
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                json={"entity_id": SHOPPING_LIST_ENTITY, "status": ["needs_action"]},
+            ) as resp:
+                data = await resp.json(content_type=None)
+        return data.get(SHOPPING_LIST_ENTITY, {}).get("items", [])
+    except Exception as e:
+        log.warning(f"[GroceryTracker] Kunde inte hämta inköpslista: {e}")
+        return []
+
+# ─── Inköpslista-hjälpare ─────────────────────────────────────────────────────
+
+async def _add_to_shopping_list(name):
+    """Lägg till en vara i HA:s inköpslista om den inte redan finns."""
+    try:
+        existing = await _get_shopping_list_items()
+        existing_names = {i.get("summary", "").lower() for i in existing}
+        if name.lower() not in existing_names:
+            todo.add_item(entity_id=SHOPPING_LIST_ENTITY, item=name)
+            log.info(f"[GroceryTracker] '{name}' lagd till i inköpslistan")
+        else:
+            log.info(f"[GroceryTracker] '{name}' finns redan i inköpslistan, hoppar över")
+    except Exception as e:
+        log.warning(f"[GroceryTracker] Kunde inte lägga till i inköpslista: {e}")
+
+# ─── Synkrona hjälpfunktioner ─────────────────────────────────────────────────
 
 def _parse_off(data):
     if not data or data.get("status") != 1:
@@ -87,6 +120,7 @@ def _make_item(barcode, name, quantity, unit, expiry_date, category, source, ima
         "expiry_date": expiry_date or None,
         "source": str(source),
         "image_url": str(image_url) if image_url else "",
+        "shopping_list_suggested": False,
     }
 
 def _compute_stats(inventory):
@@ -172,6 +206,8 @@ async def grocery_scan_add(barcode=None, quantity=1, expiry_date=None, source="m
     for item in inventory["items"]:
         if item["barcode"] == barcode and item.get("expiry_date") == expiry_date:
             item["quantity"] += int(quantity)
+            # Varan finns igen – återställ shopping-list-flaggan
+            item["shopping_list_suggested"] = False
             found = True
             break
 
@@ -227,14 +263,20 @@ async def grocery_scan_remove(barcode=None, source="mobile"):
         "source": source,
     })
 
+    add_to_list = False
     if found_item["quantity"] <= 0:
         inventory["items"].remove(found_item)
+        add_to_list = True
 
     await _save_inventory(inventory)
     await _refresh_sensors(inventory)
 
+    # Lägg till i inköpslistan när sista exemplaret förbrukats
+    if add_to_list:
+        await _add_to_shopping_list(found_item["name"])
+
     remaining = max(0, found_item["quantity"] - 1)
-    remain_txt = f" ({remaining} kvar)" if remaining > 0 else ""
+    remain_txt = f" ({remaining} kvar)" if remaining > 0 else " – lagd till i inköpslistan 🛒"
     persistent_notification.create(
         title="🗑️ Borttagen",
         message=f"{found_item['name']}{remain_txt}",
@@ -267,17 +309,18 @@ async def grocery_manual_add(
 
 @service
 async def grocery_manual_remove(item_id=None):
-    """Ta bort en vara via ID."""
+    """Ta bort en vara via ID – lägger automatiskt till i inköpslistan."""
     if not item_id:
         return
 
     inventory = await _load_inventory()
-    before = len(inventory["items"])
+    removed = [i for i in inventory["items"] if i["id"] == str(item_id)]
     inventory["items"] = [i for i in inventory["items"] if i["id"] != str(item_id)]
 
-    if len(inventory["items"]) < before:
+    if removed:
         await _save_inventory(inventory)
         await _refresh_sensors(inventory)
+        await _add_to_shopping_list(removed[0]["name"])
 
 
 @service
@@ -290,6 +333,7 @@ async def grocery_set_expiry(item_id=None, expiry_date=None):
     for item in inventory["items"]:
         if item["id"] == str(item_id):
             item["expiry_date"] = expiry_date
+            item["shopping_list_suggested"] = False  # Nytt datum → återställ flagga
             break
 
     await _save_inventory(inventory)
@@ -302,6 +346,58 @@ async def grocery_refresh():
     inventory = await _load_inventory()
     await _refresh_sensors(inventory)
     log.info("[GroceryTracker] Lager omladdad.")
+
+
+@service
+async def grocery_push_shopping_list():
+    """Hämta inköpslistan och skicka som push-notis till alla enheter."""
+    items = await _get_shopping_list_items()
+
+    if not items:
+        notify.notify(
+            title="🛒 Inköpslistan är tom",
+            message="Inga varor på listan just nu.",
+        )
+        return
+
+    lines = [f"• {i.get('summary', '?')}" for i in items]
+    message = "\n".join(lines)
+    notify.notify(
+        title=f"🛒 Inköpslistan – {len(items)} varor",
+        message=message,
+    )
+    log.info(f"[GroceryTracker] Inköpslista pushad: {len(items)} varor")
+
+
+@service
+async def grocery_generate_shopping_list():
+    """Lägg manuellt till alla utgångna/snart utgångna varor i inköpslistan."""
+    inventory = await _load_inventory()
+    stats = _compute_stats(inventory)
+    candidates = stats["expired"] + stats["expiring_soon"]
+
+    if not candidates:
+        persistent_notification.create(
+            title="🛒 Inköpslista",
+            message="Inga utgångna eller snart-utgångna varor att föreslå.",
+            notification_id="grocery_shopping",
+        )
+        return
+
+    added = []
+    for item in candidates:
+        await _add_to_shopping_list(item["name"])
+        item["shopping_list_suggested"] = True
+        added.append(item["name"])
+
+    await _save_inventory(inventory)
+
+    persistent_notification.create(
+        title="🛒 Inköpslista uppdaterad",
+        message=f"Lade till: {', '.join(added)}",
+        notification_id="grocery_shopping",
+    )
+    log.info(f"[GroceryTracker] Genererade inköpslista: {added}")
 
 
 # ─── Daglig påminnelse kl 16:00 ─────────────────────────────────────────────
@@ -317,6 +413,18 @@ async def _daily_expiry_check():
     if not expiring and not expired:
         return
 
+    # Lägg till utgångna/snart utgångna i inköpslistan (en gång per vara)
+    list_changed = False
+    for item in expired + expiring:
+        if not item.get("shopping_list_suggested"):
+            await _add_to_shopping_list(item["name"])
+            item["shopping_list_suggested"] = True
+            list_changed = True
+
+    if list_changed:
+        await _save_inventory(inventory)
+
+    # Skicka daglig notis
     lines = []
     if expired:
         lines.append("🔴 Utgångna:")
@@ -327,17 +435,12 @@ async def _daily_expiry_check():
         for i in expiring:
             lines.append(f"  • {i['name']} (bäst före {i.get('expiry_date', '?')})")
 
-    all_items = stats["items"]
-    ingredient_list = ", ".join(
-        f"{i['name']}" + (f" ({i['quantity']} {i['unit']})" if i.get("unit") else "")
-        for i in all_items[:20]
+    lines.append("\n🛒 Lagd till i inköpslistan automatiskt.")
+
+    notify.notify(
+        title="🍽️ Kylskåpsrapporten",
+        message="\n".join(lines),
     )
-
-    message = "\n".join(lines)
-    if ingredient_list:
-        message += f"\n\n📦 I lager: {ingredient_list}"
-
-    notify.notify(title="🍽️ Kylskåpsrapporten", message=message)
     log.info(f"[GroceryTracker] Daglig koll: {len(expiring)} snart utgångna, {len(expired)} utgångna")
 
 
@@ -347,4 +450,4 @@ async def _daily_expiry_check():
 async def _startup():
     inventory = await _load_inventory()
     await _refresh_sensors(inventory)
-    log.info("[GroceryTracker] Grocery Tracker startad.")
+    log.info("[GroceryTracker] Grocery Tracker v1.2 startad.")
