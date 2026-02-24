@@ -8,38 +8,70 @@ Services:
   pyscript.grocery_manual_remove(item_id)
   pyscript.grocery_set_expiry(item_id, expiry_date)
   pyscript.grocery_refresh()
+
+NOTERING: pyscript blockerar open() som builtin (BUILTIN_EXCLUDE).
+Fil-I/O sker via pathlib.Path.read_text/write_text via task.executor —
+dessa är vanliga Python-metoder (inte pyscript EvalFuncVar) och accepteras av task.executor.
 """
+
+import json
+import pathlib
 
 INVENTORY_FILE = "/config/grocery_inventory.json"
 OFF_API = "https://world.openfoodfacts.org/api/v2/product/{barcode}.json"
 OFF_HEADERS = {"User-Agent": "HomeAssistant-GroceryTracker/1.0 (homeassistant)"}
 
-# ─── Fil-I/O (kör via task.executor) ────────────────────────────────────────
+# ─── Fil-I/O via task.executor (pathlib.Path-metoder = vanlig Python, ej EvalFuncVar) ───
 
-def _load_inventory():
-    import json
+async def _load_inventory():
     try:
-        with open(INVENTORY_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError):
+        text = await task.executor(
+            pathlib.Path(INVENTORY_FILE).read_text, encoding="utf-8"
+        )
+        return json.loads(text)
+    except Exception:
         return {"items": [], "waste_log": []}
 
-def _save_inventory(data):
-    import json
-    with open(INVENTORY_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+async def _save_inventory(data):
+    text = json.dumps(data, ensure_ascii=False, indent=2)
+    await task.executor(
+        pathlib.Path(INVENTORY_FILE).write_text, text, encoding="utf-8"
+    )
 
-def _fetch_off_sync(barcode):
-    """Slå upp produkt i Open Food Facts (synkron, körs via executor)."""
-    import requests
+# ─── HTTP-lookup via aiohttp (async, inget task.executor behövs) ─────────────
+
+async def _fetch_off(barcode):
+    """Slå upp produkt i Open Food Facts."""
+    import aiohttp
     url = OFF_API.format(barcode=barcode)
     try:
-        resp = requests.get(url, timeout=10, headers=OFF_HEADERS)
-        if resp.status_code == 200:
-            return resp.json()
+        async with aiohttp.ClientSession(headers=OFF_HEADERS) as session:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                if resp.status == 200:
+                    return await resp.json(content_type=None)
     except Exception as e:
         log.warning(f"[GroceryTracker] OFF-lookup misslyckades för {barcode}: {e}")
     return {}
+
+# ─── Synkrona hjälpfunktioner (ingen fil-I/O, anropas direkt) ────────────────
+
+def _parse_off(data):
+    if not data or data.get("status") != 1:
+        return {}
+    p = data.get("product", {})
+    name = (
+        p.get("product_name_sv")
+        or p.get("product_name")
+        or p.get("product_name_en")
+        or ""
+    )
+    cats = p.get("categories_tags", [])
+    category = cats[-1].replace("en:", "").replace("-", " ") if cats else ""
+    return {
+        "name": name.strip(),
+        "category": category,
+        "image_url": p.get("image_small_url", ""),
+    }
 
 def _make_item(barcode, name, quantity, unit, expiry_date, category, source, image_url):
     import uuid as _uuid
@@ -57,36 +89,10 @@ def _make_item(barcode, name, quantity, unit, expiry_date, category, source, ima
         "image_url": str(image_url) if image_url else "",
     }
 
-# ─── Hjälpfunktion: tolka OFF-svar ──────────────────────────────────────────
-
-def _parse_off(data):
-    """Returnera dict med name, category, image_url från OFF-svar."""
-    if not data or data.get("status") != 1:
-        return {}
-    p = data.get("product", {})
-    name = (
-        p.get("product_name_sv")
-        or p.get("product_name")
-        or p.get("product_name_en")
-        or ""
-    )
-    cats = p.get("categories_tags", [])
-    category = cats[-1].replace("en:", "").replace("-", " ") if cats else ""
-    return {
-        "name": name.strip(),
-        "category": category,
-        "image_url": p.get("image_small_url", ""),
-        "brands": p.get("brands", ""),
-    }
-
-# ─── Sensorer ────────────────────────────────────────────────────────────────
-
-def _update_sensors_sync(inventory):
-    """Beräkna och sätt HA-sensorer (körs i executor för datetimes)."""
-    from datetime import datetime, timedelta, date
+def _compute_stats(inventory):
+    from datetime import date, timedelta, datetime
     items = inventory.get("items", [])
     today = date.today()
-
     expiring_soon = []
     expired = []
     for item in items:
@@ -100,7 +106,6 @@ def _update_sensors_sync(inventory):
                     expiring_soon.append(item)
             except (ValueError, TypeError):
                 pass
-
     return {
         "total": len(items),
         "expiring_soon": expiring_soon,
@@ -108,9 +113,11 @@ def _update_sensors_sync(inventory):
         "items": items,
     }
 
+# ─── Sensoruppdatering ────────────────────────────────────────────────────────
+
 async def _refresh_sensors(inventory):
-    stats = await task.executor(_update_sensors_sync, inventory)
-    hass.states.set(
+    stats = _compute_stats(inventory)
+    state.set(
         "sensor.grocery_total_items",
         stats["total"],
         {
@@ -120,7 +127,7 @@ async def _refresh_sensors(inventory):
             "items": stats["items"],
         },
     )
-    hass.states.set(
+    state.set(
         "sensor.grocery_expiring_soon",
         len(stats["expiring_soon"]),
         {
@@ -130,7 +137,7 @@ async def _refresh_sensors(inventory):
             "items": stats["expiring_soon"],
         },
     )
-    hass.states.set(
+    state.set(
         "sensor.grocery_expired",
         len(stats["expired"]),
         {
@@ -153,16 +160,14 @@ async def grocery_scan_add(barcode=None, quantity=1, expiry_date=None, source="m
     barcode = str(barcode).strip()
     log.info(f"[GroceryTracker] Lägger till: {barcode} (källa: {source})")
 
-    # Slå upp produkt
-    off_data = await task.executor(_fetch_off_sync, barcode)
+    off_data = await _fetch_off(barcode)
     product = _parse_off(off_data)
     name = product.get("name") or f"Okänd vara ({barcode})"
     category = product.get("category", "")
     image_url = product.get("image_url", "")
 
-    inventory = await task.executor(_load_inventory)
+    inventory = await _load_inventory()
 
-    # Finns varan redan (samma streckkod + samma datum)? → öka antal
     found = False
     for item in inventory["items"]:
         if item["barcode"] == barcode and item.get("expiry_date") == expiry_date:
@@ -171,27 +176,24 @@ async def grocery_scan_add(barcode=None, quantity=1, expiry_date=None, source="m
             break
 
     if not found:
-        new_item = await task.executor(
-            _make_item, barcode, name, quantity, "st",
-            expiry_date, category, source, image_url
-        )
+        new_item = _make_item(barcode, name, quantity, "st", expiry_date, category, source, image_url)
         inventory["items"].append(new_item)
 
-    await task.executor(_save_inventory, inventory)
+    await _save_inventory(inventory)
     await _refresh_sensors(inventory)
 
     qty_txt = f" ×{quantity}" if int(quantity) > 1 else ""
     exp_txt = f" (bäst före {expiry_date})" if expiry_date else ""
-    hass.services.call("persistent_notification", "create", {
-        "title": "✅ Tillagd i lager",
-        "message": f"{name}{qty_txt}{exp_txt}",
-        "notification_id": "grocery_action",
-    })
+    persistent_notification.create(
+        title="✅ Tillagd i lager",
+        message=f"{name}{qty_txt}{exp_txt}",
+        notification_id="grocery_action",
+    )
 
 
 @service
 async def grocery_scan_remove(barcode=None, source="mobile"):
-    """Scanna en vara för att ta bort från lagret (förbrukad/slängd)."""
+    """Scanna en vara för att ta bort från lagret."""
     if not barcode:
         log.warning("[GroceryTracker] grocery_scan_remove anropad utan streckkod")
         return
@@ -199,7 +201,7 @@ async def grocery_scan_remove(barcode=None, source="mobile"):
     barcode = str(barcode).strip()
     log.info(f"[GroceryTracker] Tar bort: {barcode} (källa: {source})")
 
-    inventory = await task.executor(_load_inventory)
+    inventory = await _load_inventory()
 
     found_item = None
     for item in inventory["items"]:
@@ -208,11 +210,11 @@ async def grocery_scan_remove(barcode=None, source="mobile"):
             break
 
     if not found_item:
-        hass.services.call("persistent_notification", "create", {
-            "title": "⚠️ Vara ej i lager",
-            "message": f"Streckkod {barcode} finns inte i lagret. Lägg till den först.",
-            "notification_id": "grocery_action",
-        })
+        persistent_notification.create(
+            title="⚠️ Vara ej i lager",
+            message=f"Streckkod {barcode} finns inte i lagret.",
+            notification_id="grocery_action",
+        )
         return
 
     found_item["quantity"] -= 1
@@ -228,79 +230,76 @@ async def grocery_scan_remove(barcode=None, source="mobile"):
     if found_item["quantity"] <= 0:
         inventory["items"].remove(found_item)
 
-    await task.executor(_save_inventory, inventory)
+    await _save_inventory(inventory)
     await _refresh_sensors(inventory)
 
     remaining = max(0, found_item["quantity"] - 1)
     remain_txt = f" ({remaining} kvar)" if remaining > 0 else ""
-    hass.services.call("persistent_notification", "create", {
-        "title": "🗑️ Borttagen",
-        "message": f"{found_item['name']}{remain_txt}",
-        "notification_id": "grocery_action",
-    })
+    persistent_notification.create(
+        title="🗑️ Borttagen",
+        message=f"{found_item['name']}{remain_txt}",
+        notification_id="grocery_action",
+    )
 
 
 @service
 async def grocery_manual_add(
     name=None, quantity=1, unit="st", expiry_date=None, category="", barcode=""
 ):
-    """Lägg till vara manuellt – används för ägg, lösvikt, osv."""
+    """Lägg till vara manuellt."""
     if not name:
         log.warning("[GroceryTracker] grocery_manual_add anropad utan namn")
         return
 
-    inventory = await task.executor(_load_inventory)
-    new_item = await task.executor(
-        _make_item, barcode or "", name, quantity, unit,
-        expiry_date, category, "manual", ""
-    )
+    inventory = await _load_inventory()
+    new_item = _make_item(barcode or "", name, quantity, unit, expiry_date, category, "manual", "")
     inventory["items"].append(new_item)
-    await task.executor(_save_inventory, inventory)
+    await _save_inventory(inventory)
     await _refresh_sensors(inventory)
 
     qty_txt = f"{quantity} {unit} " if unit != "st" else (f"×{quantity} " if int(quantity) > 1 else "")
-    hass.services.call("persistent_notification", "create", {
-        "title": "✅ Manuellt tillagd",
-        "message": f"{qty_txt}{name}",
-        "notification_id": "grocery_action",
-    })
+    persistent_notification.create(
+        title="✅ Manuellt tillagd",
+        message=f"{qty_txt}{name}",
+        notification_id="grocery_action",
+    )
 
 
 @service
 async def grocery_manual_remove(item_id=None):
-    """Ta bort en specifik vara via dess ID (används från dashboard)."""
+    """Ta bort en vara via ID."""
     if not item_id:
         return
 
-    inventory = await task.executor(_load_inventory)
+    inventory = await _load_inventory()
     before = len(inventory["items"])
     inventory["items"] = [i for i in inventory["items"] if i["id"] != str(item_id)]
 
     if len(inventory["items"]) < before:
-        await task.executor(_save_inventory, inventory)
+        await _save_inventory(inventory)
         await _refresh_sensors(inventory)
 
 
 @service
 async def grocery_set_expiry(item_id=None, expiry_date=None):
-    """Uppdatera bäst-före-datum på en vara i lagret."""
+    """Uppdatera bäst-före-datum."""
     if not item_id:
         return
 
-    inventory = await task.executor(_load_inventory)
+    inventory = await _load_inventory()
     for item in inventory["items"]:
         if item["id"] == str(item_id):
             item["expiry_date"] = expiry_date
             break
 
-    await task.executor(_save_inventory, inventory)
+    await _save_inventory(inventory)
     await _refresh_sensors(inventory)
 
 
 @service
 async def grocery_refresh():
-    """Ladda om lagret från fil och uppdatera alla sensorer."""
-    inventory = await task.executor(_load_inventory)
+    """Ladda om lagret från fil och uppdatera sensorer."""
+    inventory = await _load_inventory()
     await _refresh_sensors(inventory)
     log.info("[GroceryTracker] Lager omladdad.")
 
@@ -309,9 +308,8 @@ async def grocery_refresh():
 
 @time_trigger("cron(0 16 * * *)")
 async def _daily_expiry_check():
-    """Kolla dagligen vad som går ut snart och skicka notis."""
-    inventory = await task.executor(_load_inventory)
-    stats = await task.executor(_update_sensors_sync, inventory)
+    inventory = await _load_inventory()
+    stats = _compute_stats(inventory)
 
     expiring = stats["expiring_soon"]
     expired = stats["expired"]
@@ -329,7 +327,6 @@ async def _daily_expiry_check():
         for i in expiring:
             lines.append(f"  • {i['name']} (bäst före {i.get('expiry_date', '?')})")
 
-    # Bygg ingredienslista för alla varor i lagret
     all_items = stats["items"]
     ingredient_list = ", ".join(
         f"{i['name']}" + (f" ({i['quantity']} {i['unit']})" if i.get("unit") else "")
@@ -340,16 +337,14 @@ async def _daily_expiry_check():
     if ingredient_list:
         message += f"\n\n📦 I lager: {ingredient_list}"
 
-    hass.services.call("notify", "notify", {
-        "title": "🍽️ Kylskåpsrapporten",
-        "message": message,
-    })
+    notify.notify(title="🍽️ Kylskåpsrapporten", message=message)
     log.info(f"[GroceryTracker] Daglig koll: {len(expiring)} snart utgångna, {len(expired)} utgångna")
 
 
-# ─── Startup: ladda sensorer direkt vid start ────────────────────────────────
+# ─── Startup ─────────────────────────────────────────────────────────────────
 
 @time_trigger("startup")
 async def _startup():
-    await grocery_refresh()
+    inventory = await _load_inventory()
+    await _refresh_sensors(inventory)
     log.info("[GroceryTracker] Grocery Tracker startad.")

@@ -5,6 +5,7 @@
 [![HA Version](https://img.shields.io/badge/HA-2024.1%2B-blue)](https://www.home-assistant.io)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![pyscript](https://img.shields.io/badge/requires-pyscript-orange)](https://github.com/custom-components/pyscript)
+[![Version](https://img.shields.io/badge/version-1.1-brightgreen)]()
 
 **Svenska instruktioner:** [README_SV.md](README_SV.md)
 
@@ -120,8 +121,10 @@ ios_shortcut_remove: "Remove item"  # iOS Shortcut name for removing
 | Platform | Scanning method |
 |----------|----------------|
 | Android (HA App / Chrome) | Native BarcodeDetector API → jsQR fallback |
-| iPhone (HA App / Safari) | jsQR via camera (iOS 14.5+) → iOS Shortcuts fallback |
+| iPhone | **iOS Shortcuts** (primary) — HA Companion App WebView blocks camera access |
 | Desktop | jsQR via camera |
+
+> **iPhone note:** The HA Companion App's WebView blocks camera access, so jsQR does not work on iPhone. iOS Shortcuts is the recommended and supported method.
 
 ### iPhone / iOS Shortcuts setup
 
@@ -207,6 +210,19 @@ Inventory is stored as JSON at `/config/grocery_inventory.json`:
 
 - Product data: [Open Food Facts](https://world.openfoodfacts.org) (CC BY-SA)
 - Barcode decoding: [jsQR](https://github.com/cozmo/jsQR) (Apache 2.0)
+
+## Changelog
+
+### v1.1 (2026-02-24)
+- **Fixed:** pyscript blocks the `open()` builtin — file I/O now uses `pathlib.Path.read_text/write_text` via `task.executor`
+- **Fixed:** iOS webhook automation template crash (`trigger.data.barcode`) — now uses safe `.get()` access
+- **Fixed:** HTTP lookups to Open Food Facts now use `aiohttp` (async) instead of `requests` in executor
+- **Clarified:** iPhone camera scanning is not supported in HA Companion App — iOS Shortcuts is the primary method
+
+### v1.0 (2026-02-23)
+- Initial release
+
+---
 
 ## License
 
