@@ -112,11 +112,15 @@ ios_shortcut_remove: "Ta bort vara"      # namn på din iOS Genväg
 
 | Plattform | Skanningsmetod |
 |-----------|---------------|
-| Android (HA-appen / Chrome) | Native BarcodeDetector → jsQR-fallback |
+| Android (HA-appen / Chrome) | Native BarcodeDetector → jsQR-fallback (kamera fungerar) |
 | iPhone | **iOS Genvägar** (primär metod) — HA Companion App blockerar kameraåtkomst |
 | Desktop | jsQR via kamera |
 
 > **iPhone:** HA Companion App's WebView blockerar kameraåtkomst, så kameraskanning fungerar inte på iPhone. iOS Genvägar är den rekommenderade och verifierade metoden.
+
+### Android-setup
+
+Se [docs/android_setup_sv.md](docs/android_setup_sv.md) — prova kortet direkt, använd HTTP Shortcuts-appen som reserv.
 
 ### iPhone — iOS Genvägar
 
