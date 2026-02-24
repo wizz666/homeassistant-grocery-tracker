@@ -110,7 +110,7 @@ automation:
     action:
       - service: pyscript.grocery_scan_add
         data:
-          barcode: "{{ trigger.json.barcode | default(trigger.data.barcode) }}"
+          barcode: "{{ trigger.json.get('barcode', '') if trigger.json else trigger.data.get('barcode', '') }}"
           source: "ios_shortcut"
     mode: queued
 
@@ -126,7 +126,7 @@ automation:
     action:
       - service: pyscript.grocery_scan_remove
         data:
-          barcode: "{{ trigger.json.barcode | default(trigger.data.barcode) }}"
+          barcode: "{{ trigger.json.get('barcode', '') if trigger.json else trigger.data.get('barcode', '') }}"
           source: "ios_shortcut"
     mode: queued
 

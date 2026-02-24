@@ -5,6 +5,7 @@
 [![HA Version](https://img.shields.io/badge/HA-2024.1%2B-blue)](https://www.home-assistant.io)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![pyscript](https://img.shields.io/badge/kräver-pyscript-orange)](https://github.com/custom-components/pyscript)
+[![Version](https://img.shields.io/badge/version-1.1-brightgreen)]()
 
 ---
 
@@ -112,8 +113,10 @@ ios_shortcut_remove: "Ta bort vara"      # namn på din iOS Genväg
 | Plattform | Skanningsmetod |
 |-----------|---------------|
 | Android (HA-appen / Chrome) | Native BarcodeDetector → jsQR-fallback |
-| iPhone (HA-appen / Safari) | jsQR via kamera (iOS 14.5+) → iOS Genvägar-fallback |
+| iPhone | **iOS Genvägar** (primär metod) — HA Companion App blockerar kameraåtkomst |
 | Desktop | jsQR via kamera |
+
+> **iPhone:** HA Companion App's WebView blockerar kameraåtkomst, så kameraskanning fungerar inte på iPhone. iOS Genvägar är den rekommenderade och verifierade metoden.
 
 ### iPhone — iOS Genvägar
 
@@ -137,6 +140,19 @@ Se [docs/ios_shortcuts_sv.md](docs/ios_shortcuts_sv.md) för steg-för-steg-inst
 ## ESP32-stationer (valfritt)
 
 För dedikerade scannerenheter i köket och vid soporna — se [docs/esp32_hardware_sv.md](docs/esp32_hardware_sv.md).
+
+---
+
+## Ändringslogg
+
+### v1.1 (2026-02-24)
+- **Buggfix:** pyscript blockerar `open()` — fil-I/O använder nu `pathlib.Path.read_text/write_text` via `task.executor`
+- **Buggfix:** iOS webhook-automation kraschade med `trigger.data.barcode` — nu säker `.get()`-åtkomst
+- **Buggfix:** Open Food Facts-lookup använder nu `aiohttp` (async) istället för `requests` i executor
+- **Förtydligat:** iPhone-kameraskanning stöds ej i HA Companion App — iOS Genvägar är primär metod
+
+### v1.0 (2026-02-23)
+- Första release
 
 ---
 
