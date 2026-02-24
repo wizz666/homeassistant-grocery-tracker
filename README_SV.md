@@ -6,6 +6,7 @@
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![pyscript](https://img.shields.io/badge/kräver-pyscript-orange)](https://github.com/custom-components/pyscript)
 [![Version](https://img.shields.io/badge/version-1.3-brightgreen)]()
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-Stöd_projektet-F16061?logo=ko-fi&logoColor=white)](https://ko-fi.com/wizz666)
 
 ---
 
@@ -194,6 +195,12 @@ För dedikerade scannerenheter i köket och vid soporna — se [docs/esp32_hardw
 - Första release
 
 ---
+
+## Stöd projektet
+
+Gillar du det här projektet? En kopp kaffe uppskattas ☕
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/wizz666)
 
 ## Licens
 
