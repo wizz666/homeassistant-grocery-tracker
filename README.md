@@ -120,11 +120,15 @@ ios_shortcut_remove: "Remove item"  # iOS Shortcut name for removing
 
 | Platform | Scanning method |
 |----------|----------------|
-| Android (HA App / Chrome) | Native BarcodeDetector API → jsQR fallback |
+| Android (HA App / Chrome) | Native BarcodeDetector API → jsQR fallback (camera works) |
 | iPhone | **iOS Shortcuts** (primary) — HA Companion App WebView blocks camera access |
 | Desktop | jsQR via camera |
 
 > **iPhone note:** The HA Companion App's WebView blocks camera access, so jsQR does not work on iPhone. iOS Shortcuts is the recommended and supported method.
+
+### Android setup
+
+See [docs/android_setup.md](docs/android_setup.md) — try the card first, use HTTP Shortcuts app as fallback.
 
 ### iPhone / iOS Shortcuts setup
 
