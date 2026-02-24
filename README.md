@@ -6,6 +6,7 @@
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![pyscript](https://img.shields.io/badge/requires-pyscript-orange)](https://github.com/custom-components/pyscript)
 [![Version](https://img.shields.io/badge/version-1.3-brightgreen)]()
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-Support_this_project-F16061?logo=ko-fi&logoColor=white)](https://ko-fi.com/wizz666)
 
 **Svenska instruktioner:** [README_SV.md](README_SV.md)
 
@@ -237,6 +238,12 @@ Inventory is stored as JSON at `/config/grocery_inventory.json`:
 - [ ] HACS packaging
 
 ---
+
+## Support
+
+If you find this useful, a coffee is always appreciated ☕
+
+[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/wizz666)
 
 ## Credits
 
