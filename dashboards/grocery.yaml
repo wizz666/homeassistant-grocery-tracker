@@ -1,0 +1,43 @@
+title: Matlagret
+views:
+  - title: Skanna
+    path: skanna
+    icon: mdi:barcode-scan
+    cards:
+      - type: custom:grocery-scanner-card
+        title: Matscanner
+        ios_shortcut_add: "Lägg till vara"
+        ios_shortcut_remove: "Ta bort vara"
+
+      - type: entities
+        title: Lagerstatus
+        entities:
+          - entity: sensor.grocery_total_items
+            name: Varor i lager
+          - entity: sensor.grocery_expiring_soon
+            name: Går ut inom 2 dagar
+          - entity: sensor.grocery_expired
+            name: Utgångna varor
+
+  - title: Inköpslista
+    path: inkopslista
+    icon: mdi:cart
+    cards:
+      - type: todo-list
+        entity: todo.shopping_list
+        title: Inköpslista
+        hide_completed: true
+
+      - type: button
+        name: Skicka lista till telefon
+        icon: mdi:cart-arrow-right
+        tap_action:
+          action: call-service
+          service: script.grocery_push_shopping_list_btn
+
+      - type: button
+        name: Föreslå varor från lager
+        icon: mdi:cart-plus
+        tap_action:
+          action: call-service
+          service: script.grocery_generate_shopping_list_btn

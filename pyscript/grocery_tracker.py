@@ -20,6 +20,7 @@ import pathlib
 
 INVENTORY_FILE = "/config/grocery_inventory.json"
 SHOPPING_LIST_ENTITY = "todo.shopping_list"
+SHOPPING_LIST_FILE   = "/config/.shopping_list.json"
 OFF_API = "https://world.openfoodfacts.org/api/v2/product/{barcode}.json"
 OFF_HEADERS = {"User-Agent": "HomeAssistant-GroceryTracker/1.2 (homeassistant)"}
 
@@ -55,20 +56,15 @@ async def _fetch_off(barcode):
     return {}
 
 async def _get_shopping_list_items():
-    """Hämta aktuella inköpslistans varor via Supervisor-proxy."""
-    import aiohttp, os
-    token = os.environ.get("SUPERVISOR_TOKEN", "")
+    """Hämta aktiva varor från .shopping_list.json (ej slutförda)."""
     try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                "http://supervisor/core/api/services/todo/get_items",
-                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-                json={"entity_id": SHOPPING_LIST_ENTITY, "status": ["needs_action"]},
-            ) as resp:
-                data = await resp.json(content_type=None)
-        return data.get(SHOPPING_LIST_ENTITY, {}).get("items", [])
+        text = await task.executor(
+            pathlib.Path(SHOPPING_LIST_FILE).read_text, encoding="utf-8"
+        )
+        items = json.loads(text)
+        return [i for i in items if not i.get("complete", False)]
     except Exception as e:
-        log.warning(f"[GroceryTracker] Kunde inte hämta inköpslista: {e}")
+        log.warning(f"[GroceryTracker] Kunde inte läsa inköpslista: {e}")
         return []
 
 # ─── Inköpslista-hjälpare ─────────────────────────────────────────────────────
@@ -360,11 +356,12 @@ async def grocery_push_shopping_list():
         )
         return
 
-    lines = [f"• {i.get('summary', '?')}" for i in items]
+    lines = [f"• {i.get('name', '?')}" for i in items]
     message = "\n".join(lines)
     notify.notify(
         title=f"🛒 Inköpslistan – {len(items)} varor",
         message=message,
+        data={"url": "/grocery-dashboard/inkopslista"},
     )
     log.info(f"[GroceryTracker] Inköpslista pushad: {len(items)} varor")
 
