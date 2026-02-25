@@ -5,7 +5,7 @@
 [![HA Version](https://img.shields.io/badge/HA-2024.1%2B-blue)](https://www.home-assistant.io)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![pyscript](https://img.shields.io/badge/kräver-pyscript-orange)](https://github.com/custom-components/pyscript)
-[![Version](https://img.shields.io/badge/version-1.5-brightgreen)]()
+[![Version](https://img.shields.io/badge/version-1.6-brightgreen)]()
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-Stöd_projektet-F16061?logo=ko-fi&logoColor=white)](https://ko-fi.com/wizz666)
 
 ---
@@ -23,6 +23,8 @@
 - 🛒 **Inköpslisteintegration** — varor läggs automatiskt till när de tar slut eller går ut
 - 📲 **Skicka inköpslistan** till telefonen med ett tryck, öppnar listan direkt i HA-appen
 - 🗑️ **Svinndagbok** — fullständig historik över slängda varor, grupperad per månad
+- 👨‍🍳 **AI-receptförslag** — få receptidéer för ingredienser som snart går ut (Groq, Gemini, Anthropic eller HA AI Task)
+- ⚙️ **Inställningsflik i dashboarden** — konfigurera leverantör och API-nyckel direkt i gränssnittet
 - 📱 **iPhone-stöd** via iOS Genvägar
 - 🔌 **ESP32-stationer** — en i köket (lägg till), en vid soporna (ta bort)
 
@@ -170,6 +172,7 @@ Se [docs/ios_shortcuts_sv.md](docs/ios_shortcuts_sv.md) för steg-för-steg-inst
 | `pyscript.grocery_refresh` | — | Ladda om lager från fil |
 | `pyscript.grocery_push_shopping_list` | — | Skicka inköpslistan som push-notis till alla enheter |
 | `pyscript.grocery_generate_shopping_list` | — | Lägg alla utgångna/snart-utgångna varor i inköpslistan |
+| `pyscript.grocery_suggest_recipes` | — | Hämta AI-receptförslag för ingredienser som snart går ut |
 
 ---
 
@@ -180,6 +183,14 @@ För dedikerade scannerenheter i köket och vid soporna — se [docs/esp32_hardw
 ---
 
 ## Ändringslogg
+
+### v1.6 (2026-02-25)
+- **Nytt:** AI-receptförslag — när varor snart går ut skickas receptidéer som push-notis
+- **Nytt:** Multi-leverantörs-stöd: Groq (gratis), Google Gemini (gratis), Anthropic (betalt), HA AI Task (ingen nyckel behövs)
+- **Nytt:** Auto-fallback — om en leverantör väljs men API-nyckel saknas, faller systemet tillbaka på `ha_ai_task` automatiskt
+- **Nytt:** Inställningsflik i dashboarden — välj leverantör och klistra in API-nyckel direkt i gränssnittet
+- **Nytt:** Daglig kyl-rapport (kl 16:00) triggar nu även receptförslag om en leverantör är konfigurerad
+- **Nytt:** `grocery_suggest_recipes`-tjänst — trigga receptförslag manuellt från dashboarden
 
 ### v1.5 (2026-02-25)
 - **Nytt:** Svinndagbok-dashboard — ny vy i sidopanelen med månadssammanfattning och fullständig historik grupperad per månad

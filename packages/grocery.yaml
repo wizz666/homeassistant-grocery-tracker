@@ -32,10 +32,40 @@ script:
     sequence:
       - service: pyscript.grocery_generate_shopping_list
 
+  grocery_suggest_recipes_btn:
+    alias: "Grocery – Hämta receptförslag"
+    icon: mdi:chef-hat
+    sequence:
+      - service: pyscript.grocery_suggest_recipes
+
+# ── Receptförslag – konfiguration ────────────────────────────────────────────
+# Välj leverantör i HA och fyll i din API-nyckel.
+# Groq:      gratis på groq.com (ingen kreditkort)
+# Gemini:    gratis på aistudio.google.com (ingen kreditkort)
+# Anthropic: betalt på console.anthropic.com
+# ha_ai_task: kräver HA 2025.7+ med AI-integration konfigurerad, ingen API-nyckel här
+input_select:
+  grocery_recipe_provider:
+    name: "Receptförslag – Leverantör"
+    options:
+      - disabled
+      - groq
+      - gemini
+      - anthropic
+      - ha_ai_task
+    initial: disabled
+    icon: mdi:robot
+
+input_text:
+  grocery_recipe_api_key:
+    name: "Receptförslag – API-nyckel"
+    mode: password
+    max: 200
+    icon: mdi:key
+
 # ── USB-scanner helper ────────────────────────────────────────────────────────
 # USB-streckkodsläsare skriver streckkod + Enter i detta fält.
 # Sätt focus på fältet i en dedikerad dashboard-panel.
-input_text:
   grocery_usb_barcode:
     name: "USB Streckkodsläsare"
     icon: mdi:barcode-scan
