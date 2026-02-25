@@ -44,6 +44,123 @@ views:
           action: call-service
           service: script.grocery_generate_shopping_list_btn
 
+      - type: button
+        name: Receptförslag
+        icon: mdi:chef-hat
+        tap_action:
+          action: call-service
+          service: script.grocery_suggest_recipes_btn
+
+  - title: Inställningar
+    path: installningar
+    icon: mdi:cog
+    cards:
+      - type: entities
+        title: "👨‍🍳 Receptförslag"
+        entities:
+          - entity: input_select.grocery_recipe_provider
+            name: Leverantör
+
+      - type: conditional
+        conditions:
+          - condition: state
+            entity: input_select.grocery_recipe_provider
+            state_not: disabled
+          - condition: state
+            entity: input_select.grocery_recipe_provider
+            state_not: ha_ai_task
+        card:
+          type: entities
+          entities:
+            - entity: input_text.grocery_recipe_api_key
+              name: API-nyckel
+
+      - type: conditional
+        conditions:
+          - condition: state
+            entity: input_select.grocery_recipe_provider
+            state_not: disabled
+        card:
+          type: button
+          name: Testa receptförslag nu
+          icon: mdi:chef-hat
+          tap_action:
+            action: call-service
+            service: script.grocery_suggest_recipes_btn
+
+      - type: conditional
+        conditions:
+          - condition: state
+            entity: input_select.grocery_recipe_provider
+            state: disabled
+        card:
+          type: markdown
+          content: |
+            ### Kom igång med receptförslag
+            Välj en leverantör ovan för att aktivera automatiska receptförslag när varor snart går ut.
+
+            | Leverantör | Kostnad | Hur du skaffar nyckel |
+            |---|---|---|
+            | **groq** | Gratis | [console.groq.com](https://console.groq.com) — skapa konto, ingen kreditkort |
+            | **gemini** | Gratis | [aistudio.google.com](https://aistudio.google.com) — logga in med Google |
+            | **ha_ai_task** | Gratis | Kräver AI-integration i HA (t.ex. Google AI eller OpenRouter) — ingen API-nyckel här |
+            | **anthropic** | Betalt | [console.anthropic.com](https://console.anthropic.com) |
+
+      - type: conditional
+        conditions:
+          - condition: state
+            entity: input_select.grocery_recipe_provider
+            state: groq
+        card:
+          type: markdown
+          content: |
+            **Groq** — gratis, ingen kreditkort
+            1. Gå till [console.groq.com](https://console.groq.com)
+            2. Skapa ett konto
+            3. Klicka **API Keys → Create API Key**
+            4. Klistra in nyckeln i fältet ovan
+
+      - type: conditional
+        conditions:
+          - condition: state
+            entity: input_select.grocery_recipe_provider
+            state: gemini
+        card:
+          type: markdown
+          content: |
+            **Google Gemini** — gratis med Google-konto
+            1. Gå till [aistudio.google.com](https://aistudio.google.com)
+            2. Logga in med ditt Google-konto
+            3. Klicka **Get API key → Create API key**
+            4. Klistra in nyckeln i fältet ovan
+
+      - type: conditional
+        conditions:
+          - condition: state
+            entity: input_select.grocery_recipe_provider
+            state: anthropic
+        card:
+          type: markdown
+          content: |
+            **Anthropic Claude** — betaltjänst, bäst kvalitet
+            1. Gå till [console.anthropic.com](https://console.anthropic.com)
+            2. Skapa ett konto och lägg till betalningsmetod
+            3. Klicka **API Keys → Create Key**
+            4. Klistra in nyckeln i fältet ovan
+
+      - type: conditional
+        conditions:
+          - condition: state
+            entity: input_select.grocery_recipe_provider
+            state: ha_ai_task
+        card:
+          type: markdown
+          content: |
+            **HA AI Task** — ingen API-nyckel behövs här
+            Kräver att du har en AI-integration konfigurerad i HA:
+            **Inställningar → Enheter & tjänster → Lägg till integration**
+            Sök efter t.ex. **Google Generative AI** eller **OpenRouter**
+
   - title: Svinndagbok
     path: svinndagbok
     icon: mdi:trash-can-outline

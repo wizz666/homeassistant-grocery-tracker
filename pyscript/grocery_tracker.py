@@ -1,5 +1,5 @@
 """
-Grocery Tracker – Home Assistant Pyscript v1.4
+Grocery Tracker – Home Assistant Pyscript v1.6
 ===============================================
 Services:
   pyscript.grocery_scan_add(barcode, quantity=1, expiry_date=None, source="mobile")
@@ -8,8 +8,13 @@ Services:
   pyscript.grocery_manual_remove(item_id)
   pyscript.grocery_set_expiry(item_id, expiry_date)
   pyscript.grocery_refresh()
-  pyscript.grocery_push_shopping_list()   ← NY: skicka inköpslistan som notis
-  pyscript.grocery_generate_shopping_list() ← NY: lägg alla utgångna/snart-utgångna i listan
+  pyscript.grocery_push_shopping_list()
+  pyscript.grocery_generate_shopping_list()
+  pyscript.grocery_suggest_recipes()     ← NY: receptförslag via LLM
+
+Receptförslag – konfiguration i HA:
+  input_select.grocery_recipe_provider: disabled | groq | gemini | anthropic | ha_ai_task
+  input_text.grocery_recipe_api_key:    din API-nyckel (lämna tom för ha_ai_task)
 
 NOTERING: pyscript blockerar open() (BUILTIN_EXCLUDE).
 Fil-I/O sker via pathlib.Path.read_text/write_text via task.executor.
@@ -22,7 +27,7 @@ INVENTORY_FILE = "/config/grocery_inventory.json"
 SHOPPING_LIST_ENTITY = "todo.shopping_list"
 SHOPPING_LIST_FILE   = "/config/.shopping_list.json"
 OFF_API = "https://world.openfoodfacts.org/api/v2/product/{barcode}.json"
-OFF_HEADERS = {"User-Agent": "HomeAssistant-GroceryTracker/1.2 (homeassistant)"}
+OFF_HEADERS = {"User-Agent": "HomeAssistant-GroceryTracker/1.6 (homeassistant)"}
 
 # ─── Fil-I/O via task.executor ────────────────────────────────────────────────
 
@@ -529,6 +534,179 @@ async def _daily_expiry_check():
     )
     log.info(f"[GroceryTracker] Daglig koll: {len(expiring)} snart utgångna, {len(expired)} utgångna")
 
+    # Trigga receptförslag om leverantör är konfigurerad
+    provider = state.get("input_select.grocery_recipe_provider") or "disabled"
+    if provider != "disabled":
+        await _do_suggest_recipes(expired + expiring)
+
+
+# ─── Receptförslag via LLM ───────────────────────────────────────────────────
+
+async def _do_suggest_recipes(candidates):
+    """Intern hjälpare: bygg prompt och skicka receptförslag."""
+    if not candidates:
+        return
+    ingredients = list({item["name"] for item in candidates})
+    prompt = (
+        f"Jag har dessa matvaror som snart går ut eller redan har gått ut: "
+        f"{', '.join(ingredients)}. "
+        f"Föreslå 2-3 enkla och goda recept som använder dessa ingredienser. "
+        f"Håll varje recept kort: namn, huvudingredienser och en mening om tillagning. "
+        f"Svara på svenska."
+    )
+    result = await _call_recipe_llm(prompt)
+    if result:
+        notify.notify(
+            title="👨‍🍳 Receptförslag – använd innan det går ut!",
+            message=result,
+        )
+        log.info(f"[GroceryTracker] Receptförslag skickat för: {ingredients}")
+
+
+async def _call_recipe_llm(prompt):
+    """Anropa konfigurerad LLM-leverantör. Faller tillbaka på ha_ai_task om API-nyckel saknas."""
+    provider = state.get("input_select.grocery_recipe_provider") or "disabled"
+    api_key  = state.get("input_text.grocery_recipe_api_key") or ""
+
+    # Auto-fallback: om nyckel saknas för en leverantör som kräver det → ha_ai_task
+    needs_key = provider in ("groq", "gemini", "anthropic")
+    if needs_key and not api_key:
+        log.info(f"[GroceryTracker] API-nyckel saknas för {provider} – faller tillbaka på ha_ai_task")
+        return await _call_ha_ai_task(prompt)
+
+    if provider == "groq":
+        return await _call_groq(prompt, api_key)
+    elif provider == "gemini":
+        return await _call_gemini(prompt, api_key)
+    elif provider == "anthropic":
+        return await _call_anthropic(prompt, api_key)
+    elif provider == "ha_ai_task":
+        return await _call_ha_ai_task(prompt)
+    else:
+        log.warning(f"[GroceryTracker] recipe_provider är '{provider}' – receptförslag inaktiverat")
+        return None
+
+
+async def _call_groq(prompt, api_key):
+    import aiohttp
+    if not api_key:
+        log.warning("[GroceryTracker] Groq: API-nyckel saknas i input_text.grocery_recipe_api_key")
+        return None
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    payload = {
+        "model": "llama-3.1-8b-instant",
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": 500,
+        "temperature": 0.7,
+    }
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload, headers=headers,
+                                    timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                if resp.status == 200:
+                    data = await resp.json(content_type=None)
+                    return data["choices"][0]["message"]["content"].strip()
+                log.warning(f"[GroceryTracker] Groq API-fel: {resp.status}")
+    except Exception as e:
+        log.warning(f"[GroceryTracker] Groq-anrop misslyckades: {e}")
+    return None
+
+
+async def _call_gemini(prompt, api_key):
+    import aiohttp
+    if not api_key:
+        log.warning("[GroceryTracker] Gemini: API-nyckel saknas i input_text.grocery_recipe_api_key")
+        return None
+    url = (
+        f"https://generativelanguage.googleapis.com/v1beta/models/"
+        f"gemini-2.0-flash:generateContent?key={api_key}"
+    )
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"maxOutputTokens": 500, "temperature": 0.7},
+    }
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload,
+                                    timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                if resp.status == 200:
+                    data = await resp.json(content_type=None)
+                    return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+                log.warning(f"[GroceryTracker] Gemini API-fel: {resp.status}")
+    except Exception as e:
+        log.warning(f"[GroceryTracker] Gemini-anrop misslyckades: {e}")
+    return None
+
+
+async def _call_anthropic(prompt, api_key):
+    import aiohttp
+    if not api_key:
+        log.warning("[GroceryTracker] Anthropic: API-nyckel saknas i input_text.grocery_recipe_api_key")
+        return None
+    url = "https://api.anthropic.com/v1/messages"
+    headers = {
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+    }
+    payload = {
+        "model": "claude-haiku-4-5-20251001",
+        "max_tokens": 500,
+        "messages": [{"role": "user", "content": prompt}],
+    }
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload, headers=headers,
+                                    timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                if resp.status == 200:
+                    data = await resp.json(content_type=None)
+                    return data["content"][0]["text"].strip()
+                log.warning(f"[GroceryTracker] Anthropic API-fel: {resp.status}")
+    except Exception as e:
+        log.warning(f"[GroceryTracker] Anthropic-anrop misslyckades: {e}")
+    return None
+
+
+async def _call_ha_ai_task(prompt):
+    """Anropa HA:s inbyggda ai_task (kräver HA 2025.7+ med AI-integration konfigurerad)."""
+    try:
+        result = ai_task.generate_data(
+            task_name="grocery_recipe_suggestions",
+            instructions=prompt,
+        )
+        return (result or {}).get("data", {}).get("text", "").strip() or None
+    except Exception as e:
+        log.warning(f"[GroceryTracker] HA AI Task-anrop misslyckades: {e}")
+    return None
+
+
+@service
+async def grocery_suggest_recipes():
+    """Hämta varor som snart går ut och skicka receptförslag via konfigurerad LLM."""
+    provider = state.get("input_select.grocery_recipe_provider") or "disabled"
+    if provider == "disabled":
+        persistent_notification.create(
+            title="👨‍🍳 Receptförslag inaktiverat",
+            message="Välj en leverantör i input_select.grocery_recipe_provider för att aktivera.",
+            notification_id="grocery_recipes",
+        )
+        return
+
+    inventory = await _load_inventory()
+    stats = _compute_stats(inventory)
+    candidates = stats["expired"] + stats["expiring_soon"]
+
+    if not candidates:
+        persistent_notification.create(
+            title="👨‍🍳 Inga varor att föreslå recept för",
+            message="Inga utgångna eller snart-utgångna varor i lagret just nu.",
+            notification_id="grocery_recipes",
+        )
+        return
+
+    await _do_suggest_recipes(candidates)
+
 
 # ─── Startup ─────────────────────────────────────────────────────────────────
 
@@ -536,4 +714,4 @@ async def _daily_expiry_check():
 async def _startup():
     inventory = await _load_inventory()
     await _refresh_sensors(inventory)
-    log.info("[GroceryTracker] Grocery Tracker v1.4 startad.")
+    log.info("[GroceryTracker] Grocery Tracker v1.6 startad.")

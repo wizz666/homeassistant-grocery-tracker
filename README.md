@@ -5,7 +5,7 @@
 [![HA Version](https://img.shields.io/badge/HA-2024.1%2B-blue)](https://www.home-assistant.io)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![pyscript](https://img.shields.io/badge/requires-pyscript-orange)](https://github.com/custom-components/pyscript)
-[![Version](https://img.shields.io/badge/version-1.5-brightgreen)]()
+[![Version](https://img.shields.io/badge/version-1.6-brightgreen)]()
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-Support_this_project-F16061?logo=ko-fi&logoColor=white)](https://ko-fi.com/wizz666)
 
 **Svenska instruktioner:** [README_SV.md](README_SV.md)
@@ -25,6 +25,8 @@
 - 🛒 **Shopping list integration** — auto-adds items when they run out or expire
 - 📲 **Push shopping list** to your phone with one tap, opens list directly in HA app
 - 🗑️ **Waste log dashboard** — full history of discarded items, grouped by month
+- 👨‍🍳 **AI recipe suggestions** — get recipe ideas for ingredients about to expire (Groq, Gemini, Anthropic or HA AI Task)
+- ⚙️ **Settings tab in dashboard** — configure recipe provider and API key directly in the UI
 - 📱 **iPhone support** via iOS Shortcuts
 - 🔌 **ESP32 stations** — one in the kitchen (add), one at the bin (remove)
 
@@ -180,6 +182,7 @@ Call these from automations, scripts or Developer Tools:
 | `pyscript.grocery_refresh` | — | Reload inventory from file |
 | `pyscript.grocery_push_shopping_list` | — | Push shopping list as notification to all devices |
 | `pyscript.grocery_generate_shopping_list` | — | Add all expired/expiring items to shopping list |
+| `pyscript.grocery_suggest_recipes` | — | Get AI recipe suggestions for expiring ingredients |
 
 ---
 
@@ -236,7 +239,7 @@ Inventory is stored as JSON at `/config/grocery_inventory.json`:
 
 ## Roadmap
 
-- [ ] Claude AI recipe suggestions based on expiring ingredients
+- [x] AI recipe suggestions based on expiring ingredients (Groq / Gemini / Anthropic / HA AI Task)
 - [x] Shopping list integration (HA built-in)
 - [x] Low-stock alerts (configurable per-item threshold)
 - [x] Location tags (fridge / freezer / pantry)
@@ -259,6 +262,14 @@ If you find this useful, a coffee is always appreciated ☕
 - Barcode decoding: [jsQR](https://github.com/cozmo/jsQR) (Apache 2.0)
 
 ## Changelog
+
+### v1.6 (2026-02-25)
+- **New:** AI recipe suggestions — when items are about to expire, get recipe ideas via push notification
+- **New:** Multi-provider LLM support: Groq (free), Google Gemini (free), Anthropic (paid), HA AI Task (no key needed)
+- **New:** Auto-fallback — if a provider is selected but API key is missing, falls back to `ha_ai_task` automatically
+- **New:** Settings tab in the dashboard — choose provider and enter API key directly in the UI (no more Settings → Helpers)
+- **New:** Daily expiry alert (16:00) now also triggers recipe suggestions if a provider is configured
+- **New:** `grocery_suggest_recipes` service — trigger recipe suggestions manually from the dashboard
 
 ### v1.5 (2026-02-25)
 - **New:** Waste log dashboard — new "Svinndagbok" sidebar view with monthly summary and full history grouped by month
