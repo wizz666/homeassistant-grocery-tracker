@@ -148,6 +148,32 @@ const STYLES = `
     margin-left: 4px; vertical-align: middle;
   }
   .spinner { text-align: center; padding: 20px; color: var(--secondary-text-color); }
+
+  /* Bäst-före inline-edit */
+  .expiry-edit-row {
+    display: flex; align-items: center; gap: 6px;
+    padding: 8px 0 8px 38px;
+    border-bottom: 1px solid var(--divider-color);
+  }
+  .expiry-date-input {
+    flex: 1; padding: 8px 10px; border-radius: 6px;
+    border: 2px solid var(--primary-color);
+    background: var(--card-background-color);
+    color: var(--primary-text-color); font-size: 1em;
+  }
+
+  /* Platsfilter */
+  .loc-filter { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+  .loc-btn {
+    padding: 4px 12px; border-radius: 16px; border: 1px solid var(--divider-color);
+    background: transparent; cursor: pointer; font-size: .82em;
+    color: var(--secondary-text-color); white-space: nowrap;
+  }
+  .loc-btn.active { background: var(--primary-color); color: white; border-color: transparent; }
+
+  /* Lågstock */
+  .item-low-stock { color: #e65100; }
+  .loc-tag { font-size: .72em; color: var(--secondary-text-color); margin-left: 4px; opacity: .8; }
 `;
 
 class GroceryScannerCard extends HTMLElement {
@@ -164,6 +190,8 @@ class GroceryScannerCard extends HTMLElement {
     this._config = {};
     this._initialized = false;
     this._cameraWorks = null;  // null=okänt, true/false efter test
+    this._locationFilter = "all";
+    this._editingExpiryId = null;
   }
 
   static getConfigElement() { return document.createElement("div"); }
@@ -200,7 +228,7 @@ class GroceryScannerCard extends HTMLElement {
   }
 
   _drawMain() {
-    const badge = (this._getExpiringSoonCount() + this._getExpiredCount());
+    const badge = this._getExpiringSoonCount() + this._getExpiredCount() + this._getLowStockCount();
     const invBadge = badge > 0 ? `<span class="badge">${badge}</span>` : "";
 
     this._card.innerHTML = `
@@ -229,26 +257,50 @@ class GroceryScannerCard extends HTMLElement {
   // ── SCAN-fliken ────────────────────────────────────────────────────────────
   _renderScanTab(container) {
     if (this._scanState === "idle") {
-      const iosNote = IS_IOS
-        ? `<div class="platform-info">
-             <strong>📱 iPhone / iPad</strong>
-             Kameraskanning försöks via jsQR. Fungerar ej?
-             Använd iOS Genvägar-knapparna nedan.
-           </div>`
-        : "";
+      // iPhone: visa guide istället för knappar som inte fungerar i WKWebView
+      if (IS_IOS) {
+        container.innerHTML = `
+          <div class="platform-info">
+            <strong>📱 iPhone – Så här scannar du</strong>
+            HA-appen på iPhone kan inte öppna kameran eller Genvägar-appen direkt.
+            Scanning görs via en iOS Genväg på hemskärmen.
+          </div>
 
-      const iosButtons = IS_IOS
-        ? `<div class="divider">eller via iOS Genvägar</div>
-           <button class="btn btn-ios btn-full" id="ios-add-btn">
-             🍏 Skanna &amp; Lägg till (Genvägar)
-           </button>
-           <button class="btn btn-outline btn-full" id="ios-remove-btn">
-             🍏 Skanna &amp; Ta bort (Genvägar)
-           </button>`
-        : "";
+          <div style="background:var(--secondary-background-color);border-radius:8px;padding:14px;margin-bottom:12px">
+            <div style="font-weight:600;margin-bottom:10px">Steg 1 – Skapa genvägar (en gång)</div>
+            <div style="font-size:.85em;line-height:1.7;color:var(--primary-text-color)">
+              1. Öppna <strong>Genvägar</strong>-appen → <strong>+</strong><br>
+              2. Lägg till: <strong>Skanna QR-kod</strong><br>
+              3. Lägg till: <strong>Hämta URL-innehåll</strong><br>
+              &nbsp;&nbsp;&nbsp;• URL: <code style="font-size:.8em;background:#0002;padding:1px 4px;border-radius:3px">DIN-HA-URL/api/webhook/grocery_add</code><br>
+              &nbsp;&nbsp;&nbsp;• Metod: <strong>POST</strong><br>
+              &nbsp;&nbsp;&nbsp;• Rubrik: <code style="font-size:.8em;background:#0002;padding:1px 4px;border-radius:3px">Content-Type: application/json</code><br>
+              &nbsp;&nbsp;&nbsp;• JSON-nyckel: <strong>barcode</strong> → värde: variabeln <strong>QR-kod</strong><br>
+              4. Namnge: <strong>Lägg till vara</strong><br>
+              5. Lägg till på hemskärmen<br>
+              6. Upprepa med <code style="font-size:.8em;background:#0002;padding:1px 4px;border-radius:3px">/grocery_remove</code> → <strong>Ta bort vara</strong>
+            </div>
+          </div>
 
+          <div style="background:var(--secondary-background-color);border-radius:8px;padding:14px;margin-bottom:12px">
+            <div style="font-weight:600;margin-bottom:6px">Steg 2 – Scanna</div>
+            <div style="font-size:.85em;line-height:1.7;color:var(--primary-text-color)">
+              Tryck på genvägsikonen på <strong>hemskärmen</strong> (utanför HA-appen).<br>
+              Kameran öppnas → scanna → klart. HA uppdateras automatiskt.
+            </div>
+          </div>
+
+          <div class="divider">eller lägg till manuellt</div>
+          <button class="btn btn-primary btn-full" id="manual-btn">✏️ Manuell inmatning</button>
+        `;
+        container.querySelector("#manual-btn").addEventListener("click", () => {
+          this._tab = "manual"; this._drawMain();
+        });
+        return;
+      }
+
+      // Android / Desktop: visa kameraknapp
       container.innerHTML = `
-        ${iosNote}
         <div style="text-align:center; padding: 8px 0 16px;">
           <div style="font-size:4em; margin-bottom:12px;">🔍</div>
           <p style="color:var(--secondary-text-color); margin: 0 0 20px;">
@@ -256,17 +308,8 @@ class GroceryScannerCard extends HTMLElement {
           </p>
         </div>
         <button class="btn btn-primary btn-full" id="start-btn">📷 Starta kamera</button>
-        ${iosButtons}
       `;
-
       container.querySelector("#start-btn").addEventListener("click", () => this._initCamera(container));
-
-      if (IS_IOS) {
-        container.querySelector("#ios-add-btn").addEventListener("click", () =>
-          this._openShortcut(this._config.ios_shortcut_add || "Lägg till vara"));
-        container.querySelector("#ios-remove-btn").addEventListener("click", () =>
-          this._openShortcut(this._config.ios_shortcut_remove || "Ta bort vara"));
-      }
 
     } else if (this._scanState === "checking") {
       container.innerHTML = `<div class="spinner">⏳ Kontrollerar kamera…</div>`;
@@ -459,6 +502,14 @@ class GroceryScannerCard extends HTMLElement {
         <label>Bäst före (valfritt)</label>
         <input type="date" id="expiry">
       </div>
+      <div class="form-group">
+        <label>Plats</label>
+        <select id="location">
+          <option value="kyl">🧊 Kyl</option>
+          <option value="frys">❄️ Frys</option>
+          <option value="skafferi">🏠 Skafferi</option>
+        </select>
+      </div>
       <div class="row" style="margin-top:16px">
         <button class="btn btn-primary" id="add-btn">✅ Lägg till</button>
         <button class="btn btn-danger"  id="remove-btn">🗑️ Ta bort</button>
@@ -474,6 +525,7 @@ class GroceryScannerCard extends HTMLElement {
         expiry_date: container.querySelector("#expiry").value || null,
         source: "mobile",
         name_override: finalName,
+        location: container.querySelector("#location").value,
       });
       this._scanState = "idle"; this._drawMain();
     });
@@ -492,36 +544,9 @@ class GroceryScannerCard extends HTMLElement {
 
   // ── iOS Genvägar-fallback ─────────────────────────────────────────────────
   _renderIOSFallback(container) {
-    const addName    = this._config.ios_shortcut_add    || "Lägg till vara";
-    const removeName = this._config.ios_shortcut_remove || "Ta bort vara";
-    container.innerHTML = `
-      <div class="platform-info">
-        <strong>📷 Kamera ej tillgänglig i denna vy</strong>
-        Använd iOS Genvägar för snabb skanning, eller manuell inmatning.
-      </div>
-      <button class="btn btn-ios btn-full" id="ios-add-btn">
-        🍏 Skanna &amp; Lägg till
-      </button>
-      <button class="btn btn-outline btn-full" id="ios-remove-btn">
-        🍏 Skanna &amp; Ta bort
-      </button>
-      <div class="divider">eller</div>
-      <button class="btn btn-outline btn-full" id="manual-btn">✏️ Manuell inmatning</button>
-      <p style="font-size:.75em; color:var(--secondary-text-color); margin-top:12px; text-align:center">
-        Genvägar: "${addName}" / "${removeName}"<br>
-        Saknas? Läs installationsguiden.
-      </p>
-    `;
-    container.querySelector("#ios-add-btn").addEventListener("click",    () => this._openShortcut(addName));
-    container.querySelector("#ios-remove-btn").addEventListener("click", () => this._openShortcut(removeName));
-    container.querySelector("#manual-btn").addEventListener("click", () => {
-      this._tab = "manual"; this._drawMain();
-    });
-  }
-
-  _openShortcut(name) {
-    // shortcuts:// öppnar Genvägar-appen direkt med rätt genväg
-    window.location.href = `shortcuts://run-shortcut?name=${encodeURIComponent(name)}`;
+    // Samma som idle-läget för iOS — visa guiden
+    this._scanState = "idle";
+    this._renderScanTab(container);
   }
 
   // ── MANUELL-fliken ────────────────────────────────────────────────────────
@@ -556,6 +581,18 @@ class GroceryScannerCard extends HTMLElement {
         <input type="date" id="m-expiry">
       </div>
       <div class="form-group">
+        <label>Plats</label>
+        <select id="m-location">
+          <option value="kyl">🧊 Kyl</option>
+          <option value="frys">❄️ Frys</option>
+          <option value="skafferi">🏠 Skafferi</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Lågstocksvarning vid (st, 0 = av)</label>
+        <input type="number" id="m-minqty" value="0" min="0" max="99">
+      </div>
+      <div class="form-group">
         <label>Streckkod (valfritt)</label>
         <input type="text" id="m-barcode" placeholder="7310500143006" inputmode="numeric">
       </div>
@@ -572,11 +609,14 @@ class GroceryScannerCard extends HTMLElement {
         category: container.querySelector("#m-cat").value,
         expiry_date: container.querySelector("#m-expiry").value || null,
         barcode: container.querySelector("#m-barcode").value.trim(),
+        location: container.querySelector("#m-location").value,
+        min_quantity: parseInt(container.querySelector("#m-minqty").value) || 0,
       });
       container.querySelector("#m-name").value = "";
       container.querySelector("#m-qty").value = "1";
       container.querySelector("#m-expiry").value = "";
       container.querySelector("#m-barcode").value = "";
+      container.querySelector("#m-minqty").value = "0";
     });
   }
 
@@ -586,16 +626,40 @@ class GroceryScannerCard extends HTMLElement {
   _renderInventory(container) {
     const c = container || this._card.querySelector("#tab-content");
     if (!c || this._tab !== "inventory") return;
-    const items = this._getItems();
+    const allItems = this._getItems();
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const soon  = new Date(today); soon.setDate(soon.getDate() + 2);
 
-    if (!items.length) {
-      c.innerHTML = `<div class="empty">📭 Lagret är tomt<br><small>Skanna eller lägg till manuellt</small></div>`;
+    if (!allItems.length) {
+      c.innerHTML = `
+        <div class="loc-filter">
+          ${["all","kyl","frys","skafferi"].map(l => `<button class="loc-btn${this._locationFilter===l?" active":""}" data-loc="${l}">${this._locationLabel(l)}</button>`).join("")}
+        </div>
+        <div class="empty">📭 Lagret är tomt<br><small>Skanna eller lägg till manuellt</small></div>`;
+      c.querySelectorAll(".loc-btn").forEach(btn => btn.addEventListener("click", () => {
+        this._locationFilter = btn.dataset.loc; this._renderInventory();
+      }));
       return;
     }
 
+    // Filtrera på plats
+    const items = this._locationFilter === "all"
+      ? allItems
+      : allItems.filter(i => (i.location || "kyl") === this._locationFilter);
+
+    // Sortera: utgångna → snart utgångna → lågt lager → normalt
     const sorted = [...items].sort((a, b) => {
+      const rank = item => {
+        const exp = item.expiry_date ? new Date(item.expiry_date) : null;
+        if (exp) exp.setHours(0,0,0,0);
+        if (exp && exp < today) return 0;
+        if (exp && exp <= soon) return 1;
+        const minQ = item.min_quantity || 0;
+        if (minQ > 0 && item.quantity <= minQ) return 2;
+        return 3;
+      };
+      const ra = rank(a), rb = rank(b);
+      if (ra !== rb) return ra - rb;
       const ea = a.expiry_date ? new Date(a.expiry_date) : null;
       const eb = b.expiry_date ? new Date(b.expiry_date) : null;
       if (ea && eb) return ea - eb;
@@ -603,39 +667,99 @@ class GroceryScannerCard extends HTMLElement {
       return (a.name || "").localeCompare(b.name || "", "sv");
     });
 
+    // Räkna per plats för filterknappar
+    const counts = { all: allItems.length };
+    for (const loc of ["kyl","frys","skafferi"]) {
+      counts[loc] = allItems.filter(i => (i.location || "kyl") === loc).length;
+    }
+
     c.innerHTML = `
-      <div style="font-size:.85em;color:var(--secondary-text-color);margin-bottom:8px">
-        ${items.length} varor i lager
+      <div class="loc-filter">
+        ${["all","kyl","frys","skafferi"].map(l => `
+          <button class="loc-btn${this._locationFilter===l?" active":""}" data-loc="${l}">
+            ${this._locationLabel(l)}${counts[l] > 0 ? ` <small>(${counts[l]})</small>` : ""}
+          </button>`).join("")}
       </div>
-      ${sorted.map(item => {
-        const exp = item.expiry_date ? new Date(item.expiry_date) : null;
-        if (exp) exp.setHours(0, 0, 0, 0);
-        let cls = "", expTxt = "";
-        if (exp) {
-          if (exp < today)  { cls = "item-expiry-expired"; expTxt = `🔴 Utgången ${item.expiry_date}`; }
-          else if (exp <= soon) { cls = "item-expiry-warn";    expTxt = `🟡 Bäst före ${item.expiry_date}`; }
-          else                  {                              expTxt = `Bäst före ${item.expiry_date}`; }
-        }
-        const emoji = this._categoryEmoji(item.category);
-        return `
-          <div class="inventory-item">
-            <span class="item-emoji">${emoji}</span>
-            <div class="item-details">
-              <div class="item-name">${item.name}
-                <span style="color:var(--secondary-text-color);font-weight:normal">
-                  ×${item.quantity} ${item.unit}
-                </span>
+      <div style="font-size:.85em;color:var(--secondary-text-color);margin-bottom:8px">
+        ${items.length} varor${this._locationFilter !== "all" ? " i " + this._locationLabel(this._locationFilter) : " i lager"}
+      </div>
+      ${sorted.length === 0
+        ? `<div class="empty">Inga varor här ännu</div>`
+        : sorted.map(item => {
+          const exp = item.expiry_date ? new Date(item.expiry_date) : null;
+          if (exp) exp.setHours(0, 0, 0, 0);
+          let cls = "", expTxt = "";
+          if (exp) {
+            if (exp < today)      { cls = "item-expiry-expired"; expTxt = `🔴 Utgången ${item.expiry_date}`; }
+            else if (exp <= soon) { cls = "item-expiry-warn";    expTxt = `🟡 Bäst före ${item.expiry_date}`; }
+            else                  {                              expTxt = `Bäst före ${item.expiry_date}`; }
+          }
+          const minQ = item.min_quantity || 0;
+          const isLow = minQ > 0 && item.quantity <= minQ;
+          const emoji = this._categoryEmoji(item.category);
+          const locEmoji = this._locationEmoji(item.location);
+          const isEditing = this._editingExpiryId === item.id;
+          return `
+            <div class="inventory-item">
+              <span class="item-emoji">${emoji}</span>
+              <div class="item-details expiry-btn" data-id="${item.id}" style="cursor:pointer">
+                <div class="item-name">${item.name}
+                  <span style="color:var(--secondary-text-color);font-weight:normal">
+                    ×${item.quantity} ${item.unit}
+                  </span>
+                  ${locEmoji ? `<span class="loc-tag">${locEmoji}</span>` : ""}
+                </div>
+                ${expTxt
+                  ? `<div class="item-meta ${cls}">${expTxt} ✏️</div>`
+                  : `<div class="item-meta" style="color:var(--primary-color);font-size:.78em">📅 Lägg till bäst före-datum</div>`}
+                ${isLow ? `<div class="item-meta item-low-stock">🟠 Lågt lager (min ${minQ} ${item.unit})</div>` : ""}
               </div>
-              ${expTxt ? `<div class="item-meta ${cls}">${expTxt}</div>` : ""}
+              <div class="item-actions">
+                <button class="icon-btn remove-btn" data-id="${item.id}" title="Ta bort">🗑️</button>
+              </div>
             </div>
-            <div class="item-actions">
-              <button class="icon-btn" data-id="${item.id}" title="Ta bort">🗑️</button>
-            </div>
-          </div>`;
-      }).join("")}
+            ${isEditing ? `
+            <div class="expiry-edit-row">
+              <input type="date" class="expiry-date-input" data-id="${item.id}"
+                value="${item.expiry_date || ''}">
+              <button class="icon-btn save-expiry-btn" data-id="${item.id}" title="Spara">✅</button>
+              <button class="icon-btn cancel-expiry-btn" title="Avbryt">✕</button>
+            </div>` : ""}`;
+        }).join("")}
     `;
 
-    c.querySelectorAll(".icon-btn").forEach(btn => {
+    c.querySelectorAll(".loc-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        this._locationFilter = btn.dataset.loc; this._renderInventory();
+      });
+    });
+    c.querySelectorAll(".expiry-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        this._editingExpiryId = btn.dataset.id;
+        this._renderInventory();
+      });
+    });
+
+    c.querySelectorAll(".save-expiry-btn").forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const input = btn.parentElement.querySelector(".expiry-date-input");
+        await this._callService("grocery_set_expiry", {
+          item_id: btn.dataset.id,
+          expiry_date: input.value || null,
+        });
+        this._editingExpiryId = null;
+        setTimeout(() => this._renderInventory(), 600);
+      });
+    });
+
+    c.querySelectorAll(".cancel-expiry-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        this._editingExpiryId = null;
+        this._renderInventory();
+      });
+    });
+
+    c.querySelectorAll(".remove-btn").forEach(btn => {
       btn.addEventListener("click", async () => {
         if (confirm("Ta bort från lagret?")) {
           await this._callService("grocery_manual_remove", { item_id: btn.dataset.id });
@@ -655,6 +779,21 @@ class GroceryScannerCard extends HTMLElement {
   _getItems()             { return this._hass?.states?.["sensor.grocery_total_items"]?.attributes?.items || []; }
   _getExpiringSoonCount() { return parseInt(this._hass?.states?.["sensor.grocery_expiring_soon"]?.state || "0"); }
   _getExpiredCount()      { return parseInt(this._hass?.states?.["sensor.grocery_expired"]?.state || "0"); }
+  _getLowStockCount()     { return parseInt(this._hass?.states?.["sensor.grocery_low_stock"]?.state || "0"); }
+
+  _locationEmoji(loc) {
+    if (loc === "frys")     return "❄️";
+    if (loc === "skafferi") return "🏠";
+    if (loc === "kyl")      return "🧊";
+    return "";
+  }
+
+  _locationLabel(loc) {
+    if (loc === "kyl")      return "🧊 Kyl";
+    if (loc === "frys")     return "❄️ Frys";
+    if (loc === "skafferi") return "🏠 Skafferi";
+    return "🛒 Alla";
+  }
 
   _categoryEmoji(cat) {
     const c = (cat || "").toLowerCase();

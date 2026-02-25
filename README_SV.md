@@ -5,7 +5,7 @@
 [![HA Version](https://img.shields.io/badge/HA-2024.1%2B-blue)](https://www.home-assistant.io)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![pyscript](https://img.shields.io/badge/kräver-pyscript-orange)](https://github.com/custom-components/pyscript)
-[![Version](https://img.shields.io/badge/version-1.3-brightgreen)]()
+[![Version](https://img.shields.io/badge/version-1.5-brightgreen)]()
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-Stöd_projektet-F16061?logo=ko-fi&logoColor=white)](https://ko-fi.com/wizz666)
 
 ---
@@ -14,12 +14,15 @@
 
 - 📷 **Skanna streckkoder** via mobilkameran eller dedikerade ESP32-stationer
 - 🔍 **Automatisk produktinfo** från [Open Food Facts](https://world.openfoodfacts.org) (3M+ produkter)
-- 📦 **Lagerspårning** — antal, enhet, bäst-före-datum
+- 📦 **Lagerspårning** — antal, enhet, bäst-före-datum, plats
 - ✏️ **Manuell inmatning** för varor utan streckkod (ägg, lösvikt)
+- 📅 **Sätt bäst-före-datum** — tryck på en vara i lagret för att sätta eller ändra datumet direkt
 - ⚠️ **Daglig påminnelse kl 16:00** om vad som snart går ut
+- 🧊 **Platsmärkning** — spåra varor per kyl, frys eller skafferi med filterknappar
+- 🟠 **Lågstocksvarning** — konfigurerbar minimumnivå per vara
 - 🛒 **Inköpslisteintegration** — varor läggs automatiskt till när de tar slut eller går ut
 - 📲 **Skicka inköpslistan** till telefonen med ett tryck, öppnar listan direkt i HA-appen
-- 🗑️ **Svinndagbok** — se vad du slänger över tid
+- 🗑️ **Svinndagbok** — fullständig historik över slängda varor, grupperad per månad
 - 📱 **iPhone-stöd** via iOS Genvägar
 - 🔌 **ESP32-stationer** — en i köket (lägg till), en vid soporna (ta bort)
 
@@ -157,11 +160,13 @@ Se [docs/ios_shortcuts_sv.md](docs/ios_shortcuts_sv.md) för steg-för-steg-inst
 
 | Tjänst | Parametrar | Beskrivning |
 |--------|-----------|-------------|
-| `pyscript.grocery_scan_add` | `barcode`, `quantity`, `expiry_date`, `source` | Lägg till vara via streckkod |
-| `pyscript.grocery_scan_remove` | `barcode`, `source` | Ta bort/minska vara via streckkod |
-| `pyscript.grocery_manual_add` | `name`, `quantity`, `unit`, `expiry_date`, `category`, `barcode` | Lägg till manuellt |
-| `pyscript.grocery_manual_remove` | `item_id` | Ta bort via ID |
+| `pyscript.grocery_scan_add` | `barcode`, `quantity`, `expiry_date`, `source`, `location`, `name_override` | Lägg till vara via streckkod |
+| `pyscript.grocery_scan_remove` | `barcode`, `source` | Ta bort/minska vara (loggar svinn även om varan ej finns i lager) |
+| `pyscript.grocery_manual_add` | `name`, `quantity`, `unit`, `expiry_date`, `category`, `barcode`, `location`, `min_quantity` | Lägg till manuellt |
+| `pyscript.grocery_manual_remove` | `item_id` | Ta bort via ID (loggar till svinndagboken) |
 | `pyscript.grocery_set_expiry` | `item_id`, `expiry_date` | Uppdatera bäst-före-datum |
+| `pyscript.grocery_set_min_quantity` | `item_id`, `min_quantity` | Sätt lågstocksgräns (0 = av) |
+| `pyscript.grocery_set_location` | `item_id`, `location` | Sätt plats: `kyl`, `frys` eller `skafferi` |
 | `pyscript.grocery_refresh` | — | Ladda om lager från fil |
 | `pyscript.grocery_push_shopping_list` | — | Skicka inköpslistan som push-notis till alla enheter |
 | `pyscript.grocery_generate_shopping_list` | — | Lägg alla utgångna/snart-utgångna varor i inköpslistan |
@@ -175,6 +180,24 @@ För dedikerade scannerenheter i köket och vid soporna — se [docs/esp32_hardw
 ---
 
 ## Ändringslogg
+
+### v1.5 (2026-02-25)
+- **Nytt:** Svinndagbok-dashboard — ny vy i sidopanelen med månadssammanfattning och fullständig historik grupperad per månad
+- **Nytt:** `sensor.grocery_waste_log` — spårar alla slängda varor med datum, namn och källa
+- **Nytt:** Tryck på en vara i lagret för att sätta/ändra bäst-före-datum direkt (fungerar på iPhone)
+- **Buggfix:** Sopikonen (manuell borttagning) loggar nu till svinndagboken
+- **Buggfix:** `grocery_scan_remove` loggar nu svinn även om varan ej finns i lager — slår upp namn från Open Food Facts
+- **Buggfix:** Dubblettkontrollen i inköpslistan använde fel fält (`summary` → `name`)
+- **Buggfix:** Manuellt inmatat namn används nu korrekt vid `grocery_scan_add` när varan ej finns i Open Food Facts
+
+### v1.4 (2026-02-25)
+- **Nytt:** Platsmärkning per vara — kyl (`kyl`), frys (`frys`) eller skafferi (`skafferi`)
+- **Nytt:** Platsfilterknappar i lagerfliken med antal varor per plats
+- **Nytt:** Lågstocksvarning — sätt en minimumnivå per vara; flaggas 🟠 och läggs i inköpslistan vid underskridning
+- **Nytt:** Sensor `sensor.grocery_low_stock`
+- **Nytt:** Tjänsterna `grocery_set_min_quantity` och `grocery_set_location`
+- **Uppdaterat:** `grocery_scan_add` — ny `location`-parameter
+- **Uppdaterat:** `grocery_manual_add` — nya parametrar `location` och `min_quantity`
 
 ### v1.3 (2026-02-24)
 - **Nytt:** Inköpslisteintegration — varor läggs automatiskt till i `todo.shopping_list` när sista exemplaret tas bort eller när de går ut

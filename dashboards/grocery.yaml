@@ -18,6 +18,8 @@ views:
             name: Går ut inom 2 dagar
           - entity: sensor.grocery_expired
             name: Utgångna varor
+          - entity: sensor.grocery_low_stock
+            name: Lågt lager
 
   - title: Inköpslista
     path: inkopslista
@@ -41,3 +43,57 @@ views:
         tap_action:
           action: call-service
           service: script.grocery_generate_shopping_list_btn
+
+  - title: Svinndagbok
+    path: svinndagbok
+    icon: mdi:trash-can-outline
+    cards:
+      - type: entities
+        title: Svinnöversikt
+        entities:
+          - entity: sensor.grocery_waste_log
+            name: Totalt registrerade svinn
+
+      - type: markdown
+        title: "📅 Denna månaden"
+        content: |
+          {% set log = state_attr('sensor.grocery_waste_log', 'log') | default([]) | list %}
+          {% set this_month = now().strftime('%Y-%m') %}
+          {% set ns = namespace(monthly=[]) %}
+          {% for item in log %}
+            {% if item.date[:7] == this_month %}
+              {% set ns.monthly = ns.monthly + [item] %}
+            {% endif %}
+          {% endfor %}
+          {% if ns.monthly | length == 0 %}
+          _Inget svinn registrerat denna månad._
+          {% else %}
+          **{{ ns.monthly | length }} varor** slängda hittills i {{ now().strftime('%B %Y') }}
+
+          {% for item in ns.monthly | reverse %}
+          - **{{ item.date[8:] }}/{{ item.date[5:7] }}** — {{ item.name }}{% if item.source not in ['mobile', 'manual'] %} _({{ item.source }})_{% endif %}
+          {% endfor %}
+          {% endif %}
+
+      - type: markdown
+        title: "🗓️ Svinnhistorik"
+        content: |
+          {% set log = state_attr('sensor.grocery_waste_log', 'log') | default([]) | list %}
+          {% if log | length == 0 %}
+          _Ingen historik ännu. Börja skanna förpackningar när du slänger dem!_
+          {% else %}
+          {% set ns = namespace(last_month='') %}
+          {% for item in log | reverse %}
+          {% if loop.index <= 60 %}
+          {% set m = item.date[:7] %}
+          {% if m != ns.last_month %}
+          #### {{ m }}
+          {% set ns.last_month = m %}
+          {% endif %}
+          - **{{ item.date[8:] }}/{{ item.date[5:7] }}** {{ item.name }}
+          {% endif %}
+          {% endfor %}
+          {% if log | length > 60 %}
+          _... och {{ log | length - 60 }} äldre poster_
+          {% endif %}
+          {% endif %}

@@ -5,7 +5,7 @@
 [![HA Version](https://img.shields.io/badge/HA-2024.1%2B-blue)](https://www.home-assistant.io)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![pyscript](https://img.shields.io/badge/requires-pyscript-orange)](https://github.com/custom-components/pyscript)
-[![Version](https://img.shields.io/badge/version-1.3-brightgreen)]()
+[![Version](https://img.shields.io/badge/version-1.5-brightgreen)]()
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-Support_this_project-F16061?logo=ko-fi&logoColor=white)](https://ko-fi.com/wizz666)
 
 **Svenska instruktioner:** [README_SV.md](README_SV.md)
@@ -16,12 +16,15 @@
 
 - 📷 **Scan barcodes** via phone camera or dedicated ESP32 scanner stations
 - 🔍 **Auto-lookup** product info from [Open Food Facts](https://world.openfoodfacts.org) (3M+ products)
-- 📦 **Track your inventory** — quantity, unit, expiry dates
+- 📦 **Track your inventory** — quantity, unit, expiry dates, location
 - ✏️ **Manual entry** for items without barcodes (eggs, bulk goods)
+- 📅 **Set expiry dates** — tap any item in the inventory to set or edit its best-before date
 - ⚠️ **Daily expiry alerts** at 16:00 listing what's about to expire
+- 🧊 **Location tags** — track items by fridge, freezer or pantry with filter buttons
+- 🟠 **Low-stock alerts** — per-item configurable minimum quantity threshold
 - 🛒 **Shopping list integration** — auto-adds items when they run out or expire
 - 📲 **Push shopping list** to your phone with one tap, opens list directly in HA app
-- 🗑️ **Waste logging** — track what you throw away over time
+- 🗑️ **Waste log dashboard** — full history of discarded items, grouped by month
 - 📱 **iPhone support** via iOS Shortcuts
 - 🔌 **ESP32 stations** — one in the kitchen (add), one at the bin (remove)
 
@@ -167,11 +170,13 @@ Call these from automations, scripts or Developer Tools:
 
 | Service | Parameters | Description |
 |---------|-----------|-------------|
-| `pyscript.grocery_scan_add` | `barcode`, `quantity`, `expiry_date`, `source` | Add item by barcode |
-| `pyscript.grocery_scan_remove` | `barcode`, `source` | Remove/decrement item by barcode |
-| `pyscript.grocery_manual_add` | `name`, `quantity`, `unit`, `expiry_date`, `category`, `barcode` | Add item manually |
-| `pyscript.grocery_manual_remove` | `item_id` | Remove item by ID |
+| `pyscript.grocery_scan_add` | `barcode`, `quantity`, `expiry_date`, `source`, `location`, `name_override` | Add item by barcode |
+| `pyscript.grocery_scan_remove` | `barcode`, `source` | Remove/decrement item by barcode (logs to waste log even if not in inventory) |
+| `pyscript.grocery_manual_add` | `name`, `quantity`, `unit`, `expiry_date`, `category`, `barcode`, `location`, `min_quantity` | Add item manually |
+| `pyscript.grocery_manual_remove` | `item_id` | Remove item by ID (logs to waste log) |
 | `pyscript.grocery_set_expiry` | `item_id`, `expiry_date` | Update expiry date |
+| `pyscript.grocery_set_min_quantity` | `item_id`, `min_quantity` | Set low-stock alert threshold (0 = disabled) |
+| `pyscript.grocery_set_location` | `item_id`, `location` | Set item location: `kyl`, `frys` or `skafferi` |
 | `pyscript.grocery_refresh` | — | Reload inventory from file |
 | `pyscript.grocery_push_shopping_list` | — | Push shopping list as notification to all devices |
 | `pyscript.grocery_generate_shopping_list` | — | Add all expired/expiring items to shopping list |
@@ -185,6 +190,8 @@ Call these from automations, scripts or Developer Tools:
 | `sensor.grocery_total_items` | Total items in inventory (attributes: full items list) |
 | `sensor.grocery_expiring_soon` | Items expiring within 2 days |
 | `sensor.grocery_expired` | Expired items |
+| `sensor.grocery_low_stock` | Items at or below their minimum quantity threshold |
+| `sensor.grocery_waste_log` | Total discarded items (attributes: full waste log, last 100 entries) |
 
 ---
 
@@ -231,10 +238,11 @@ Inventory is stored as JSON at `/config/grocery_inventory.json`:
 
 - [ ] Claude AI recipe suggestions based on expiring ingredients
 - [x] Shopping list integration (HA built-in)
-- [ ] Low-stock alerts (configurable per-item threshold)
-- [ ] Location tags (fridge / freezer / pantry)
+- [x] Low-stock alerts (configurable per-item threshold)
+- [x] Location tags (fridge / freezer / pantry)
+- [x] Waste log dashboard with monthly summary
 - [ ] ESPHome weight sensors for bulk items (coffee, flour)
-- [ ] Weekly waste statistics dashboard
+- [ ] Weekly waste report (Monday summary notification)
 - [ ] HACS packaging
 
 ---
@@ -251,6 +259,24 @@ If you find this useful, a coffee is always appreciated ☕
 - Barcode decoding: [jsQR](https://github.com/cozmo/jsQR) (Apache 2.0)
 
 ## Changelog
+
+### v1.5 (2026-02-25)
+- **New:** Waste log dashboard — new "Svinndagbok" sidebar view with monthly summary and full history grouped by month
+- **New:** `sensor.grocery_waste_log` — tracks all discarded items with date, name and source
+- **New:** Tap any item row in the inventory to set or edit its best-before date inline (iOS compatible)
+- **Fixed:** `grocery_manual_remove` (trash button) now logs to waste log
+- **Fixed:** `grocery_scan_remove` now logs to waste log even when item is not in inventory — does Open Food Facts lookup for the name
+- **Fixed:** Shopping list duplicate check used wrong field (`summary` → `name`)
+- **Fixed:** `name_override` parameter added to `grocery_scan_add` so manually entered names are used when product is not found in Open Food Facts
+
+### v1.4 (2026-02-25)
+- **New:** Location tags per item — fridge (`kyl`), freezer (`frys`) or pantry (`skafferi`)
+- **New:** Location filter buttons in inventory tab with item counts per location
+- **New:** Low-stock alerts — set a minimum quantity per item; item is flagged 🟠 and added to shopping list when stock falls to or below threshold
+- **New:** `sensor.grocery_low_stock` sensor
+- **New:** Services `grocery_set_min_quantity` and `grocery_set_location`
+- **Updated:** `grocery_scan_add` — new `location` parameter
+- **Updated:** `grocery_manual_add` — new `location` and `min_quantity` parameters
 
 ### v1.3 (2026-02-24)
 - **New:** Shopping list integration — items automatically added to `todo.shopping_list` when last unit is removed or when they expire
