@@ -1,5 +1,5 @@
 """
-Grocery Tracker – Home Assistant Pyscript v1.2
+Grocery Tracker – Home Assistant Pyscript v1.4
 ===============================================
 Services:
   pyscript.grocery_scan_add(barcode, quantity=1, expiry_date=None, source="mobile")
@@ -73,7 +73,7 @@ async def _add_to_shopping_list(name):
     """Lägg till en vara i HA:s inköpslista om den inte redan finns."""
     try:
         existing = await _get_shopping_list_items()
-        existing_names = {i.get("summary", "").lower() for i in existing}
+        existing_names = {i.get("name", "").lower() for i in existing}
         if name.lower() not in existing_names:
             todo.add_item(entity_id=SHOPPING_LIST_ENTITY, item=name)
             log.info(f"[GroceryTracker] '{name}' lagd till i inköpslistan")
@@ -102,7 +102,7 @@ def _parse_off(data):
         "image_url": p.get("image_small_url", ""),
     }
 
-def _make_item(barcode, name, quantity, unit, expiry_date, category, source, image_url):
+def _make_item(barcode, name, quantity, unit, expiry_date, category, source, image_url, min_quantity=0, location="kyl"):
     import uuid as _uuid
     from datetime import datetime
     return {
@@ -117,6 +117,8 @@ def _make_item(barcode, name, quantity, unit, expiry_date, category, source, ima
         "source": str(source),
         "image_url": str(image_url) if image_url else "",
         "shopping_list_suggested": False,
+        "min_quantity": int(min_quantity) if min_quantity else 0,
+        "location": str(location) if location else "kyl",
     }
 
 def _compute_stats(inventory):
@@ -125,6 +127,7 @@ def _compute_stats(inventory):
     today = date.today()
     expiring_soon = []
     expired = []
+    low_stock = []
     for item in items:
         ed = item.get("expiry_date")
         if ed:
@@ -136,10 +139,14 @@ def _compute_stats(inventory):
                     expiring_soon.append(item)
             except (ValueError, TypeError):
                 pass
+        min_qty = item.get("min_quantity", 0)
+        if min_qty > 0 and item.get("quantity", 0) <= min_qty:
+            low_stock.append(item)
     return {
         "total": len(items),
         "expiring_soon": expiring_soon,
         "expired": expired,
+        "low_stock": low_stock,
         "items": items,
     }
 
@@ -177,11 +184,31 @@ async def _refresh_sensors(inventory):
             "items": stats["expired"],
         },
     )
+    state.set(
+        "sensor.grocery_low_stock",
+        len(stats["low_stock"]),
+        {
+            "friendly_name": "Lågt lager",
+            "icon": "mdi:package-variant-minus",
+            "unit_of_measurement": "st",
+            "items": stats["low_stock"],
+        },
+    )
+    state.set(
+        "sensor.grocery_waste_log",
+        len(inventory.get("waste_log", [])),
+        {
+            "friendly_name": "Matsvinn totalt",
+            "icon": "mdi:trash-can-outline",
+            "unit_of_measurement": "st",
+            "log": inventory.get("waste_log", [])[-100:],
+        },
+    )
 
 # ─── Services ────────────────────────────────────────────────────────────────
 
 @service
-async def grocery_scan_add(barcode=None, quantity=1, expiry_date=None, source="mobile"):
+async def grocery_scan_add(barcode=None, quantity=1, expiry_date=None, source="mobile", location="kyl", name_override=None):
     """Scanna en vara för att lägga till i lagret."""
     if not barcode:
         log.warning("[GroceryTracker] grocery_scan_add anropad utan streckkod")
@@ -192,7 +219,7 @@ async def grocery_scan_add(barcode=None, quantity=1, expiry_date=None, source="m
 
     off_data = await _fetch_off(barcode)
     product = _parse_off(off_data)
-    name = product.get("name") or f"Okänd vara ({barcode})"
+    name = name_override or product.get("name") or f"Okänd vara ({barcode})"
     category = product.get("category", "")
     image_url = product.get("image_url", "")
 
@@ -208,7 +235,7 @@ async def grocery_scan_add(barcode=None, quantity=1, expiry_date=None, source="m
             break
 
     if not found:
-        new_item = _make_item(barcode, name, quantity, "st", expiry_date, category, source, image_url)
+        new_item = _make_item(barcode, name, quantity, "st", expiry_date, category, source, image_url, location=location)
         inventory["items"].append(new_item)
 
     await _save_inventory(inventory)
@@ -242,9 +269,22 @@ async def grocery_scan_remove(barcode=None, source="mobile"):
             break
 
     if not found_item:
+        # Varan finns inte i lager – logga ändå som svinn via OFF-lookup
+        off_data = await _fetch_off(barcode)
+        product = _parse_off(off_data)
+        unknown_name = product.get("name") or f"Okänd vara ({barcode})"
+        from datetime import datetime
+        inventory["waste_log"].append({
+            "date": datetime.now().isoformat()[:10],
+            "name": unknown_name,
+            "barcode": barcode,
+            "source": source,
+        })
+        await _save_inventory(inventory)
+        await _refresh_sensors(inventory)
         persistent_notification.create(
-            title="⚠️ Vara ej i lager",
-            message=f"Streckkod {barcode} finns inte i lagret.",
+            title="🗑️ Svinn loggat",
+            message=f"{unknown_name} (ej i lager – loggad i svinndagboken)",
             notification_id="grocery_action",
         )
         return
@@ -260,19 +300,30 @@ async def grocery_scan_remove(barcode=None, source="mobile"):
     })
 
     add_to_list = False
+    low_stock_alert = False
     if found_item["quantity"] <= 0:
         inventory["items"].remove(found_item)
         add_to_list = True
+    else:
+        min_qty = found_item.get("min_quantity", 0)
+        if min_qty > 0 and found_item["quantity"] <= min_qty:
+            low_stock_alert = True
 
     await _save_inventory(inventory)
     await _refresh_sensors(inventory)
 
-    # Lägg till i inköpslistan när sista exemplaret förbrukats
+    # Lägg till i inköpslistan när sista exemplaret förbrukats eller vid lågt lager
     if add_to_list:
         await _add_to_shopping_list(found_item["name"])
+    elif low_stock_alert:
+        await _add_to_shopping_list(found_item["name"])
 
-    remaining = max(0, found_item["quantity"] - 1)
-    remain_txt = f" ({remaining} kvar)" if remaining > 0 else " – lagd till i inköpslistan 🛒"
+    if add_to_list:
+        remain_txt = " – lagd till i inköpslistan 🛒"
+    elif low_stock_alert:
+        remain_txt = f" ({found_item['quantity']} kvar) ⚠️ Lågt lager – lagd till i inköpslistan"
+    else:
+        remain_txt = f" ({found_item['quantity']} kvar)"
     persistent_notification.create(
         title="🗑️ Borttagen",
         message=f"{found_item['name']}{remain_txt}",
@@ -282,7 +333,7 @@ async def grocery_scan_remove(barcode=None, source="mobile"):
 
 @service
 async def grocery_manual_add(
-    name=None, quantity=1, unit="st", expiry_date=None, category="", barcode=""
+    name=None, quantity=1, unit="st", expiry_date=None, category="", barcode="", min_quantity=0, location="kyl"
 ):
     """Lägg till vara manuellt."""
     if not name:
@@ -290,7 +341,7 @@ async def grocery_manual_add(
         return
 
     inventory = await _load_inventory()
-    new_item = _make_item(barcode or "", name, quantity, unit, expiry_date, category, "manual", "")
+    new_item = _make_item(barcode or "", name, quantity, unit, expiry_date, category, "manual", "", min_quantity=min_quantity, location=location)
     inventory["items"].append(new_item)
     await _save_inventory(inventory)
     await _refresh_sensors(inventory)
@@ -314,9 +365,17 @@ async def grocery_manual_remove(item_id=None):
     inventory["items"] = [i for i in inventory["items"] if i["id"] != str(item_id)]
 
     if removed:
+        from datetime import datetime
+        item = removed[0]
+        inventory["waste_log"].append({
+            "date": datetime.now().isoformat()[:10],
+            "name": item["name"],
+            "barcode": item.get("barcode", ""),
+            "source": "manual_remove",
+        })
         await _save_inventory(inventory)
         await _refresh_sensors(inventory)
-        await _add_to_shopping_list(removed[0]["name"])
+        await _add_to_shopping_list(item["name"])
 
 
 @service
@@ -397,6 +456,36 @@ async def grocery_generate_shopping_list():
     log.info(f"[GroceryTracker] Genererade inköpslista: {added}")
 
 
+# ─── Lågstocksvarning & Plats ────────────────────────────────────────────────
+
+@service
+async def grocery_set_min_quantity(item_id=None, min_quantity=0):
+    """Sätt lågstocksvarningsgräns för en vara (0 = inaktiverad)."""
+    if not item_id:
+        return
+    inventory = await _load_inventory()
+    for item in inventory["items"]:
+        if item["id"] == str(item_id):
+            item["min_quantity"] = int(min_quantity) if min_quantity else 0
+            break
+    await _save_inventory(inventory)
+    await _refresh_sensors(inventory)
+
+
+@service
+async def grocery_set_location(item_id=None, location="kyl"):
+    """Sätt plats för en vara: kyl, frys eller skafferi."""
+    if not item_id:
+        return
+    inventory = await _load_inventory()
+    for item in inventory["items"]:
+        if item["id"] == str(item_id):
+            item["location"] = str(location) if location else "kyl"
+            break
+    await _save_inventory(inventory)
+    await _refresh_sensors(inventory)
+
+
 # ─── Daglig påminnelse kl 16:00 ─────────────────────────────────────────────
 
 @time_trigger("cron(0 16 * * *)")
@@ -447,4 +536,4 @@ async def _daily_expiry_check():
 async def _startup():
     inventory = await _load_inventory()
     await _refresh_sensors(inventory)
-    log.info("[GroceryTracker] Grocery Tracker v1.2 startad.")
+    log.info("[GroceryTracker] Grocery Tracker v1.4 startad.")
