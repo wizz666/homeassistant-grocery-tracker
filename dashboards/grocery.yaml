@@ -1,111 +1,1054 @@
 title: Matlagret
+# 💡 Kök-platta / tablet-tips:
+#    Bokmärk URL:en med ?kiosk i slutet för att dölja sidebar och header:
+#    https://<din-ha-url>/grocery-dashboard/skanna?kiosk
+#    kiosk-mode-kortet är installerat och hanterar detta automatiskt.
+
 views:
+
+  # ═══════════════════════════════════════════════════════════════════
+  # TAB 1: SKANNA — Grön identitet  🟢
+  # ═══════════════════════════════════════════════════════════════════
   - title: Skanna
     path: skanna
     icon: mdi:barcode-scan
     cards:
+
+      # ── Header med shimmer-animation ──────────────────────────────
+      - type: custom:button-card
+        name: "Matlagret"
+        label: Skanna varor · Hantera lager · Minska svinn
+        show_label: true
+        show_icon: true
+        icon: mdi:fridge-outline
+        tap_action:
+          action: none
+        extra_styles: |
+          @keyframes hdr-green {
+            0%   { background-position: 0% 50%; }
+            50%  { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+          }
+        styles:
+          card:
+            - background: "linear-gradient(-45deg, #1b5e20, #2e7d32, #388e3c, #43a047)"
+            - background-size: "300% 300%"
+            - animation: "hdr-green 10s ease infinite"
+            - border-radius: 20px
+            - padding: "20px 24px"
+            - box-shadow: "0 8px 32px rgba(27, 94, 32, 0.45)"
+          grid:
+            - grid-template-areas: '"i n" "i l"'
+            - grid-template-rows: "min-content min-content"
+            - grid-template-columns: "min-content 1fr"
+          icon:
+            - color: "rgba(255,255,255,0.95)"
+            - width: 40px
+          name:
+            - font-size: 22px
+            - font-weight: 800
+            - color: white
+            - text-align: left
+            - letter-spacing: "0.3px"
+          label:
+            - font-size: 12px
+            - color: "rgba(255,255,255,0.70)"
+            - text-align: left
+            - margin-top: 4px
+
+      # ── Statrad — 2×2 stor glassmorphism big-number grid ──────────
+      # Använder custom_fields + JS-template (entity.state) — fungerar med alla button-card-versioner
+      - type: grid
+        columns: 2
+        square: false
+        cards:
+
+          # Totalt i lager
+          - type: custom:button-card
+            entity: sensor.grocery_total_items
+            show_name: false
+            show_icon: false
+            show_state: false
+            tap_action:
+              action: none
+            custom_fields:
+              body: |
+                [[[
+                  const v = entity ? entity.state : '–';
+                  return `<div style="text-align:center;padding:14px 8px 12px;">
+                    <div style="font-size:11px;color:rgba(46,125,50,0.60);margin-bottom:4px;">📦</div>
+                    <div style="font-size:36px;font-weight:900;color:#2e7d32;line-height:1;">${v}</div>
+                    <div style="font-size:9px;letter-spacing:1.8px;text-transform:uppercase;color:rgba(46,125,50,0.60);margin-top:7px;">VAROR I LAGER</div>
+                  </div>`;
+                ]]]
+            styles:
+              card:
+                - background: "rgba(46,125,50,0.10)"
+                - border: "1px solid rgba(46,125,50,0.30)"
+                - border-radius: "20px"
+                - padding: "0"
+                - box-shadow: "0 4px 24px rgba(46,125,50,0.12)"
+              custom_fields:
+                body:
+                  - width: "100%"
+
+          # Snart utgångna
+          - type: custom:button-card
+            entity: sensor.grocery_expiring_soon
+            show_name: false
+            show_icon: false
+            show_state: false
+            tap_action:
+              action: none
+            extra_styles: |
+              @keyframes glow-warn {
+                0%, 100% { box-shadow: 0 4px 20px rgba(255,152,0,0.20); }
+                50%      { box-shadow: 0 4px 36px rgba(255,152,0,0.70); }
+              }
+            custom_fields:
+              body: |
+                [[[
+                  const v = entity ? entity.state : '–';
+                  return `<div style="text-align:center;padding:14px 8px 12px;">
+                    <div style="font-size:11px;color:#ff9800;margin-bottom:4px;">⏰</div>
+                    <div style="font-size:36px;font-weight:900;color:#ff9800;line-height:1;">${v}</div>
+                    <div style="font-size:9px;letter-spacing:1.8px;text-transform:uppercase;color:rgba(255,152,0,0.60);margin-top:7px;">SNART UTGÅNGNA</div>
+                  </div>`;
+                ]]]
+            styles:
+              card:
+                - background: "rgba(255,152,0,0.10)"
+                - border: "1px solid rgba(255,152,0,0.30)"
+                - border-radius: "20px"
+                - padding: "0"
+                - "{% if states('sensor.grocery_expiring_soon') | int(0) > 0 %}animation: glow-warn 2.5s ease-in-out infinite{% else %}box-shadow: 0 4px 20px rgba(0,0,0,0.12){% endif %}"
+              custom_fields:
+                body:
+                  - width: "100%"
+
+          # Utgångna
+          - type: custom:button-card
+            entity: sensor.grocery_expired
+            show_name: false
+            show_icon: false
+            show_state: false
+            tap_action:
+              action: none
+            extra_styles: |
+              @keyframes glow-danger {
+                0%, 100% { box-shadow: 0 4px 20px rgba(244,67,54,0.20); }
+                50%      { box-shadow: 0 4px 36px rgba(244,67,54,0.70); }
+              }
+            custom_fields:
+              body: |
+                [[[
+                  const v = entity ? entity.state : '–';
+                  return `<div style="text-align:center;padding:14px 8px 12px;">
+                    <div style="font-size:11px;color:#f44336;margin-bottom:4px;">⚠️</div>
+                    <div style="font-size:36px;font-weight:900;color:#f44336;line-height:1;">${v}</div>
+                    <div style="font-size:9px;letter-spacing:1.8px;text-transform:uppercase;color:rgba(244,67,54,0.60);margin-top:7px;">UTGÅNGNA</div>
+                  </div>`;
+                ]]]
+            styles:
+              card:
+                - background: "rgba(244,67,54,0.10)"
+                - border: "1px solid rgba(244,67,54,0.30)"
+                - border-radius: "20px"
+                - padding: "0"
+                - "{% if states('sensor.grocery_expired') | int(0) > 0 %}animation: glow-danger 1.8s ease-in-out infinite{% else %}box-shadow: 0 4px 20px rgba(0,0,0,0.12){% endif %}"
+              custom_fields:
+                body:
+                  - width: "100%"
+
+          # Lågt lager
+          - type: custom:button-card
+            entity: sensor.grocery_low_stock
+            show_name: false
+            show_icon: false
+            show_state: false
+            tap_action:
+              action: none
+            extra_styles: |
+              @keyframes glow-low {
+                0%, 100% { box-shadow: 0 4px 20px rgba(255,87,34,0.20); }
+                50%      { box-shadow: 0 4px 32px rgba(255,87,34,0.65); }
+              }
+            custom_fields:
+              body: |
+                [[[
+                  const v = entity ? entity.state : '–';
+                  return `<div style="text-align:center;padding:14px 8px 12px;">
+                    <div style="font-size:11px;color:#ff5722;margin-bottom:4px;">📉</div>
+                    <div style="font-size:36px;font-weight:900;color:#ff5722;line-height:1;">${v}</div>
+                    <div style="font-size:9px;letter-spacing:1.8px;text-transform:uppercase;color:rgba(255,87,34,0.60);margin-top:7px;">LÅGT LAGER</div>
+                  </div>`;
+                ]]]
+            styles:
+              card:
+                - background: "rgba(255,87,34,0.08)"
+                - border: "1px solid rgba(255,87,34,0.25)"
+                - border-radius: "20px"
+                - padding: "0"
+                - "{% if states('sensor.grocery_low_stock') | int(0) > 0 %}animation: glow-low 2s ease-in-out infinite{% else %}box-shadow: 0 4px 20px rgba(0,0,0,0.12){% endif %}"
+              custom_fields:
+                body:
+                  - width: "100%"
+
+      # ── Lager per plats — progress-bar kort (JS-template) ─────────
+      - type: horizontal-stack
+        cards:
+
+          # KYL — tema-säkra färger (var(--primary-text-color) fungerar på light och dark)
+          - type: custom:button-card
+            entity: sensor.grocery_location_kyl
+            show_name: false
+            show_icon: false
+            show_state: false
+            tap_action:
+              action: none
+            custom_fields:
+              inner: |
+                [[[
+                  const n = parseInt(entity && entity.state) || 0;
+                  const te = states['sensor.grocery_total_items'];
+                  const total = parseInt(te && te.state) || 1;
+                  const pct = Math.min(Math.round(n / total * 100), 100);
+                  return `<div style="text-align:center;padding:14px 8px 12px;">
+                    <div style="font-size:32px;font-weight:900;color:#1565c0;line-height:1;">${n}</div>
+                    <div style="font-size:11px;margin:5px 0 4px;letter-spacing:0.5px;color:var(--primary-text-color);">🧊 Kyl</div>
+                    <div style="height:4px;background:rgba(21,101,192,0.15);border-radius:3px;overflow:hidden;margin:6px 4px 4px;">
+                      <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,#1565c0,#42a5f5);border-radius:3px;"></div>
+                    </div>
+                    <div style="font-size:9px;color:var(--secondary-text-color);letter-spacing:0.5px;">${pct}%</div>
+                  </div>`;
+                ]]]
+            styles:
+              card:
+                - background: "rgba(21,101,192,0.08)"
+                - border: "2px solid rgba(21,101,192,0.30)"
+                - border-radius: "18px"
+                - padding: "0"
+                - overflow: "hidden"
+              custom_fields:
+                inner:
+                  - width: "100%"
+
+          # FRYS
+          - type: custom:button-card
+            entity: sensor.grocery_location_frys
+            show_name: false
+            show_icon: false
+            show_state: false
+            tap_action:
+              action: none
+            custom_fields:
+              inner: |
+                [[[
+                  const n = parseInt(entity && entity.state) || 0;
+                  const te = states['sensor.grocery_total_items'];
+                  const total = parseInt(te && te.state) || 1;
+                  const pct = Math.min(Math.round(n / total * 100), 100);
+                  return `<div style="text-align:center;padding:14px 8px 12px;">
+                    <div style="font-size:32px;font-weight:900;color:#00838f;line-height:1;">${n}</div>
+                    <div style="font-size:11px;margin:5px 0 4px;letter-spacing:0.5px;color:var(--primary-text-color);">❄️ Frys</div>
+                    <div style="height:4px;background:rgba(0,131,143,0.15);border-radius:3px;overflow:hidden;margin:6px 4px 4px;">
+                      <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,#00838f,#4dd0e1);border-radius:3px;"></div>
+                    </div>
+                    <div style="font-size:9px;color:var(--secondary-text-color);letter-spacing:0.5px;">${pct}%</div>
+                  </div>`;
+                ]]]
+            styles:
+              card:
+                - background: "rgba(0,131,143,0.08)"
+                - border: "2px solid rgba(0,131,143,0.30)"
+                - border-radius: "18px"
+                - padding: "0"
+                - overflow: "hidden"
+              custom_fields:
+                inner:
+                  - width: "100%"
+
+          # SKAFFERI
+          - type: custom:button-card
+            entity: sensor.grocery_location_skafferi
+            show_name: false
+            show_icon: false
+            show_state: false
+            tap_action:
+              action: none
+            custom_fields:
+              inner: |
+                [[[
+                  const n = parseInt(entity && entity.state) || 0;
+                  const te = states['sensor.grocery_total_items'];
+                  const total = parseInt(te && te.state) || 1;
+                  const pct = Math.min(Math.round(n / total * 100), 100);
+                  return `<div style="text-align:center;padding:14px 8px 12px;">
+                    <div style="font-size:32px;font-weight:900;color:#e65100;line-height:1;">${n}</div>
+                    <div style="font-size:11px;margin:5px 0 4px;letter-spacing:0.5px;color:var(--primary-text-color);">🏠 Skafferi</div>
+                    <div style="height:4px;background:rgba(230,81,0,0.15);border-radius:3px;overflow:hidden;margin:6px 4px 4px;">
+                      <div style="height:100%;width:${pct}%;background:linear-gradient(90deg,#e65100,#ffca28);border-radius:3px;"></div>
+                    </div>
+                    <div style="font-size:9px;color:var(--secondary-text-color);letter-spacing:0.5px;">${pct}%</div>
+                  </div>`;
+                ]]]
+            styles:
+              card:
+                - background: "rgba(230,81,0,0.08)"
+                - border: "2px solid rgba(230,81,0,0.30)"
+                - border-radius: "18px"
+                - padding: "0"
+                - overflow: "hidden"
+              custom_fields:
+                inner:
+                  - width: "100%"
+
+      # ── Scanner ───────────────────────────────────────────────────
       - type: custom:grocery-scanner-card
         title: Matscanner
         ios_shortcut_add: "Lägg till vara"
         ios_shortcut_remove: "Ta bort vara"
 
-      - type: entities
-        title: Lagerstatus
-        entities:
-          - entity: sensor.grocery_total_items
-            name: Varor i lager
-          - entity: sensor.grocery_expiring_soon
-            name: Går ut inom 2 dagar
-          - entity: sensor.grocery_expired
-            name: Utgångna varor
-          - entity: sensor.grocery_low_stock
-            name: Lågt lager
 
+  # ═══════════════════════════════════════════════════════════════════
+  # TAB 2: INKÖPSLISTA — Blå identitet  🔵
+  # ═══════════════════════════════════════════════════════════════════
   - title: Inköpslista
     path: inkopslista
     icon: mdi:cart
     cards:
+
+      # ── Header ────────────────────────────────────────────────────
+      - type: custom:button-card
+        name: "Inköpslista"
+        label: Bocka av varor · Tryck "Klar" när du är färdig i butiken
+        show_label: true
+        show_icon: true
+        icon: mdi:cart-outline
+        tap_action:
+          action: none
+        extra_styles: |
+          @keyframes hdr-blue {
+            0%   { background-position: 0% 50%; }
+            50%  { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+          }
+        styles:
+          card:
+            - background: "linear-gradient(-45deg, #0d47a1, #1565c0, #1976d2, #1e88e5)"
+            - background-size: "300% 300%"
+            - animation: "hdr-blue 10s ease infinite"
+            - border-radius: 20px
+            - padding: "20px 24px"
+            - box-shadow: "0 8px 32px rgba(13, 71, 161, 0.45)"
+          grid:
+            - grid-template-areas: '"i n" "i l"'
+            - grid-template-rows: "min-content min-content"
+            - grid-template-columns: "min-content 1fr"
+          icon:
+            - color: "rgba(255,255,255,0.95)"
+            - width: 40px
+          name:
+            - font-size: 22px
+            - font-weight: 800
+            - color: white
+            - text-align: left
+          label:
+            - font-size: 12px
+            - color: "rgba(255,255,255,0.70)"
+            - text-align: left
+            - margin-top: 4px
+
+      # ── Inköpslista ───────────────────────────────────────────────
       - type: todo-list
         entity: todo.shopping_list
-        title: Inköpslista
-        hide_completed: true
+        hide_completed: false
+        card_mod:
+          style: |
+            ha-card {
+              border-radius: 18px !important;
+              overflow: hidden;
+              border: 1px solid rgba(255,255,255,0.08);
+            }
 
-      - type: button
-        name: Skicka lista till telefon
-        icon: mdi:cart-arrow-right
-        tap_action:
-          action: call-service
-          service: script.grocery_push_shopping_list_btn
+      # ── Grupperade åtgärdsknappar (inga gap — ser ut som en enhet) ─
+      - type: custom:vertical-stack-in-card
+        card_mod:
+          style: |
+            ha-card {
+              border-radius: 18px !important;
+              overflow: hidden;
+              border: 1px solid rgba(255,255,255,0.08);
+            }
+        cards:
+          - type: custom:button-card
+            name: "✅  Jag är klar — ta bort inhandlade varor"
+            show_icon: false
+            tap_action:
+              action: call-service
+              service: script.grocery_clear_shopping_list_btn
+            styles:
+              card:
+                - background: "linear-gradient(135deg, #1b5e20, #43a047)"
+                - border-radius: 0
+                - padding: "18px 20px"
+                - box-shadow: none
+                - margin: 0
+              name:
+                - font-size: 15px
+                - font-weight: 700
+                - color: white
+          - type: custom:button-card
+            name: "📤  Skicka lista till telefon"
+            show_icon: false
+            tap_action:
+              action: call-service
+              service: script.grocery_push_shopping_list_btn
+            styles:
+              card:
+                - background: "linear-gradient(135deg, #0d47a1, #1976d2)"
+                - border-radius: 0
+                - padding: "16px 20px"
+                - border-top: "1px solid rgba(255,255,255,0.12)"
+                - box-shadow: none
+                - margin: 0
+              name:
+                - font-size: 14px
+                - font-weight: 600
+                - color: white
+          - type: custom:button-card
+            name: "✨  Föreslå varor att handla"
+            show_icon: false
+            tap_action:
+              action: call-service
+              service: script.grocery_generate_shopping_list_btn
+            styles:
+              card:
+                - background: "linear-gradient(135deg, #00695c, #00897b)"
+                - border-radius: 0
+                - padding: "16px 20px"
+                - border-top: "1px solid rgba(255,255,255,0.12)"
+                - box-shadow: none
+                - margin: 0
+              name:
+                - font-size: 14px
+                - font-weight: 600
+                - color: white
 
-      - type: button
-        name: Föreslå varor från lager
-        icon: mdi:cart-plus
-        tap_action:
-          action: call-service
-          service: script.grocery_generate_shopping_list_btn
 
-      - type: button
-        name: Receptförslag
+  # ═══════════════════════════════════════════════════════════════════
+  # TAB 3: RECEPTFÖRSLAG — Orange/Röd identitet  🟠
+  # ═══════════════════════════════════════════════════════════════════
+  - title: Receptförslag
+    path: recept
+    icon: mdi:chef-hat
+    cards:
+
+      # ── Header ────────────────────────────────────────────────────
+      - type: custom:button-card
+        name: "Receptförslag"
+        label: AI-recept baserade på vad som snart går ut
+        show_label: true
+        show_icon: true
         icon: mdi:chef-hat
+        tap_action:
+          action: none
+        extra_styles: |
+          @keyframes hdr-orange {
+            0%   { background-position: 0% 50%; }
+            50%  { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+          }
+        styles:
+          card:
+            - background: "linear-gradient(-45deg, #bf360c, #d84315, #e64a19, #f4511e)"
+            - background-size: "300% 300%"
+            - animation: "hdr-orange 10s ease infinite"
+            - border-radius: 20px
+            - padding: "20px 24px"
+            - box-shadow: "0 8px 32px rgba(191, 54, 12, 0.45)"
+          grid:
+            - grid-template-areas: '"i n" "i l"'
+            - grid-template-rows: "min-content min-content"
+            - grid-template-columns: "min-content 1fr"
+          icon:
+            - color: "rgba(255,255,255,0.95)"
+            - width: 40px
+          name:
+            - font-size: 22px
+            - font-weight: 800
+            - color: white
+            - text-align: left
+          label:
+            - font-size: 12px
+            - color: "rgba(255,255,255,0.70)"
+            - text-align: left
+            - margin-top: 4px
+
+      # ── Aktiv leverantör + senast uppdaterad ──────────────────────
+      - type: custom:mushroom-template-card
+        primary: >
+          {% set p = states('input_select.grocery_recipe_provider') %}
+          {% if p == 'groq' %}🟠 Groq – Llama 3.3 70B
+          {% elif p == 'gemini' %}🔵 Gemini 2.0 Flash
+          {% elif p == 'openrouter' %}🟣 OpenRouter – Mistral
+          {% elif p == 'mistral' %}🩷 Mistral Small
+          {% elif p == 'openai' %}🟢 GPT-4o Mini
+          {% elif p == 'anthropic' %}🟡 Claude Haiku
+          {% elif p == 'ha_ai_task' %}🩵 HA AI Task
+          {% else %}Ingen AI vald — klicka för att välja{% endif %}
+        secondary: "🕐 {{ states('sensor.grocery_last_recipe') }}"
+        icon: mdi:robot-outline
+        icon_color: >
+          {% set p = states('input_select.grocery_recipe_provider') %}
+          {% if p == 'disabled' %}disabled
+          {% elif p in ['groq','openrouter'] %}deep-orange
+          {% elif p in ['gemini','openai'] %}blue
+          {% elif p == 'anthropic' %}amber
+          {% elif p == 'mistral' %}pink
+          {% else %}teal{% endif %}
+        tap_action:
+          action: navigate
+          navigation_path: /grocery-dashboard/installningar
+        card_mod:
+          style: |
+            ha-card { border-radius: 14px; }
+
+      # ── Receptkort — glassmorphism ─────────────────────────────────
+      - type: markdown
+        card_mod:
+          style: |
+            ha-card {
+              border-radius: 20px;
+              background: rgba(191,54,12,0.08);
+              border: 1px solid rgba(230,74,25,0.25);
+              box-shadow: 0 6px 28px rgba(191,54,12,0.16);
+              overflow: hidden;
+            }
+        content: |
+          {% set recipe = state_attr('sensor.grocery_last_recipe', 'recipe') %}
+          {% set updated = states('sensor.grocery_last_recipe') %}
+          {% set ingredients = state_attr('sensor.grocery_last_recipe', 'ingredients') %}
+          {% set kwh = state_attr('sensor.grocery_last_recipe', 'cooking_kwh') %}
+          {% set cost = state_attr('sensor.grocery_last_recipe', 'cooking_cost_kr') %}
+          {% set appliance = state_attr('sensor.grocery_last_recipe', 'cooking_appliance') %}
+          {% set minutes = state_attr('sensor.grocery_last_recipe', 'cooking_minutes') %}
+          {% set price = state_attr('sensor.grocery_last_recipe', 'electricity_price') %}
+          {% if recipe %}
+          _📅 {{ updated }}_&nbsp;&nbsp;&nbsp;_🥕 {{ ingredients }}_
+
+          ---
+
+          {{ recipe }}
+
+          ---
+
+          {% if kwh and kwh | float(0) > 0 %}
+          {% set a_emoji = {'spis': '🍳', 'ugn': '🔥', 'mikro': '📡'} %}
+          {% set emoji = a_emoji[appliance] if appliance in a_emoji else '⚡' %}
+          {{ emoji }} **{{ appliance | capitalize }}** · {{ minutes }} min · {{ kwh }} kWh · ca **{{ cost }} kr** _({{ price }} kr/kWh)_
+          {% endif %}
+          {% set actual_kwh = states('input_number.grocery_actual_cooking_kwh') | float(0) %}
+          {% set actual_cost = states('input_number.grocery_actual_cooking_cost') | float(0) %}
+          {% if actual_kwh > 0 %}
+          📊 **Faktisk förbrukning** (Tibber Pulse): {{ actual_kwh }} kWh · **{{ actual_cost }} kr**
+          _Inkluderar all förbrukning i hemmet under matlagningen_
+          {% endif %}
+          {% else %}
+          ### 👨‍🍳 Inga receptförslag ännu
+
+          Välj en AI-leverantör nedan och klicka på en knapp.
+          Recepten baseras på ingredienser som snart går ut — det är så vi minskar matsvinnet!
+          {% endif %}
+
+      # ── Matlagningssession – Starta ───────────────────────────────
+      - type: conditional
+        conditions:
+          - condition: state
+            entity: input_boolean.grocery_cooking_active
+            state: "off"
+        card:
+          type: custom:button-card
+          name: "🍳  Starta matlagningssession"
+          label: Mäter faktisk elförbrukning via Tibber Pulse
+          show_label: true
+          show_icon: false
+          tap_action:
+            action: call-service
+            service: script.grocery_start_cooking_btn
+          styles:
+            card:
+              - background: "linear-gradient(135deg, #e64a19, #bf360c)"
+              - border-radius: 14px
+              - padding: "18px 20px"
+              - box-shadow: "0 3px 14px rgba(191,54,12,0.38)"
+            name:
+              - font-size: 15px
+              - font-weight: 700
+              - color: white
+            label:
+              - font-size: 11px
+              - color: "rgba(255,255,255,0.75)"
+              - margin-top: 4px
+
+      # ── Matlagningssession – Pågår ────────────────────────────────
+      - type: conditional
+        conditions:
+          - condition: state
+            entity: input_boolean.grocery_cooking_active
+            state: "on"
+        card:
+          type: custom:vertical-stack-in-card
+          card_mod:
+            style: |
+              ha-card {
+                border-radius: 16px !important;
+                overflow: hidden;
+                border: 1px solid rgba(230,74,25,0.35);
+              }
+          cards:
+            - type: custom:mushroom-template-card
+              primary: "Matlagning pågår..."
+              secondary: "⚡ {{ states('sensor.tibber_pulse_dammtorpsgatan_22_power') | int(0) }} W just nu"
+              icon: mdi:pot-steam
+              icon_color: deep-orange
+              tap_action:
+                action: none
+              card_mod:
+                style: |
+                  @keyframes pulse-cooking {
+                    0%, 100% { box-shadow: 0 0 0 0 rgba(230, 74, 25, 0); }
+                    50%      { box-shadow: 0 0 0 9px rgba(230, 74, 25, 0.38); }
+                  }
+                  ha-card {
+                    border-radius: 0 !important;
+                    border-left: 4px solid #e64a19;
+                    animation: pulse-cooking 2s ease-in-out infinite;
+                  }
+            - type: custom:button-card
+              name: "✅  Klar — beräkna faktisk förbrukning"
+              show_icon: false
+              tap_action:
+                action: call-service
+                service: script.grocery_stop_cooking_btn
+              styles:
+                card:
+                  - background: "linear-gradient(135deg, #b71c1c, #c62828)"
+                  - border-radius: 0
+                  - padding: "16px 20px"
+                  - box-shadow: none
+                  - margin: 0
+                name:
+                  - font-size: 14px
+                  - font-weight: 700
+                  - color: white
+
+      # ── GRATIS-sektion ────────────────────────────────────────────
+      - type: custom:button-card
+        name: "🟢  GRATIS — ingen kreditkort"
+        show_icon: false
+        tap_action:
+          action: none
+        styles:
+          card:
+            - background: "rgba(67, 160, 71, 0.10)"
+            - border-left: "3px solid #43a047"
+            - border-radius: 10px
+            - box-shadow: none
+            - padding: "8px 14px"
+          name:
+            - font-size: 11px
+            - font-weight: 800
+            - letter-spacing: "1.2px"
+            - color: "#43a047"
+            - text-align: left
+
+      # Groq (full-width)
+      - type: custom:button-card
+        name: Groq
+        label: "Llama 3.3 70B · gratis, ingen kreditkort"
+        show_label: true
+        show_icon: false
+        tap_action:
+          action: call-service
+          service: pyscript.grocery_suggest_recipes
+          service_data:
+            provider_override: groq
+        extra_styles: |
+          @keyframes glow-groq {
+            0%, 100% { box-shadow: 0 4px 16px rgba(249,115,22,0.45); }
+            50%      { box-shadow: 0 6px 32px rgba(249,115,22,0.80); }
+          }
+        styles:
+          card:
+            - background: "linear-gradient(135deg, #f97316, #c2410c)"
+            - border-radius: 16px
+            - padding: "18px 16px"
+            - "{% if states('input_select.grocery_recipe_provider') == 'groq' %}animation: glow-groq 2.5s ease-in-out infinite{% else %}box-shadow: 0 3px 14px rgba(249,115,22,0.40){% endif %}"
+          name:
+            - font-size: 16px
+            - font-weight: 800
+            - color: white
+          label:
+            - font-size: 11px
+            - color: "rgba(255,255,255,0.80)"
+            - margin-top: 4px
+
+      # OpenRouter + Mistral
+      - type: horizontal-stack
+        cards:
+          - type: custom:button-card
+            name: OpenRouter
+            label: Mistral 24B
+            show_label: true
+            show_icon: false
+            tap_action:
+              action: call-service
+              service: pyscript.grocery_suggest_recipes
+              service_data:
+                provider_override: openrouter
+            extra_styles: |
+              @keyframes glow-openrouter {
+                0%, 100% { box-shadow: 0 4px 16px rgba(124,58,237,0.45); }
+                50%      { box-shadow: 0 6px 32px rgba(124,58,237,0.80); }
+              }
+            styles:
+              card:
+                - background: "linear-gradient(135deg, #7c3aed, #5b21b6)"
+                - border-radius: 16px
+                - padding: "18px 8px"
+                - "{% if states('input_select.grocery_recipe_provider') == 'openrouter' %}animation: glow-openrouter 2.5s ease-in-out infinite{% else %}box-shadow: 0 3px 14px rgba(124,58,237,0.40){% endif %}"
+              name:
+                - font-size: 16px
+                - font-weight: 800
+                - color: white
+              label:
+                - font-size: 11px
+                - color: "rgba(255,255,255,0.80)"
+                - margin-top: 4px
+          - type: custom:button-card
+            name: Mistral
+            label: Small
+            show_label: true
+            show_icon: false
+            tap_action:
+              action: call-service
+              service: pyscript.grocery_suggest_recipes
+              service_data:
+                provider_override: mistral
+            extra_styles: |
+              @keyframes glow-mistral {
+                0%, 100% { box-shadow: 0 4px 16px rgba(219,39,119,0.45); }
+                50%      { box-shadow: 0 6px 32px rgba(219,39,119,0.80); }
+              }
+            styles:
+              card:
+                - background: "linear-gradient(135deg, #db2777, #9d174d)"
+                - border-radius: 16px
+                - padding: "18px 8px"
+                - "{% if states('input_select.grocery_recipe_provider') == 'mistral' %}animation: glow-mistral 2.5s ease-in-out infinite{% else %}box-shadow: 0 3px 14px rgba(219,39,119,0.40){% endif %}"
+              name:
+                - font-size: 16px
+                - font-weight: 800
+                - color: white
+              label:
+                - font-size: 11px
+                - color: "rgba(255,255,255,0.80)"
+                - margin-top: 4px
+
+      # HA AI Task (full width)
+      - type: custom:button-card
+        name: HA AI Task
+        label: Inbyggt i HA · Ingen API-nyckel behövs
+        show_label: true
+        show_icon: false
+        tap_action:
+          action: call-service
+          service: pyscript.grocery_suggest_recipes
+          service_data:
+            provider_override: ha_ai_task
+        extra_styles: |
+          @keyframes glow-ha {
+            0%, 100% { box-shadow: 0 4px 16px rgba(0,151,167,0.45); }
+            50%      { box-shadow: 0 6px 32px rgba(0,151,167,0.80); }
+          }
+        styles:
+          card:
+            - background: "linear-gradient(135deg, #0097a7, #006064)"
+            - border-radius: 16px
+            - padding: "18px 16px"
+            - "{% if states('input_select.grocery_recipe_provider') == 'ha_ai_task' %}animation: glow-ha 2.5s ease-in-out infinite{% else %}box-shadow: 0 3px 14px rgba(0,151,167,0.40){% endif %}"
+          name:
+            - font-size: 16px
+            - font-weight: 800
+            - color: white
+          label:
+            - font-size: 11px
+            - color: "rgba(255,255,255,0.80)"
+            - margin-top: 4px
+
+      # ── BETALT-sektion ────────────────────────────────────────────
+      - type: custom:button-card
+        name: "💳  BETALT — kräver separat API-konto"
+        show_icon: false
+        tap_action:
+          action: none
+        styles:
+          card:
+            - background: "rgba(217, 119, 6, 0.10)"
+            - border-left: "3px solid #d97706"
+            - border-radius: 10px
+            - box-shadow: none
+            - padding: "8px 14px"
+          name:
+            - font-size: 11px
+            - font-weight: 800
+            - letter-spacing: "1.2px"
+            - color: "#d97706"
+            - text-align: left
+
+      # OpenAI + Anthropic
+      - type: horizontal-stack
+        cards:
+          - type: custom:button-card
+            name: OpenAI
+            label: GPT-4o Mini
+            show_label: true
+            show_icon: false
+            tap_action:
+              action: call-service
+              service: pyscript.grocery_suggest_recipes
+              service_data:
+                provider_override: openai
+            extra_styles: |
+              @keyframes glow-openai {
+                0%, 100% { box-shadow: 0 4px 16px rgba(5,150,105,0.45); }
+                50%      { box-shadow: 0 6px 32px rgba(5,150,105,0.80); }
+              }
+            styles:
+              card:
+                - background: "linear-gradient(135deg, #059669, #065f46)"
+                - border-radius: 16px
+                - padding: "18px 8px"
+                - "{% if states('input_select.grocery_recipe_provider') == 'openai' %}animation: glow-openai 2.5s ease-in-out infinite{% else %}box-shadow: 0 3px 14px rgba(5,150,105,0.40){% endif %}"
+              name:
+                - font-size: 16px
+                - font-weight: 800
+                - color: white
+              label:
+                - font-size: 11px
+                - color: "rgba(255,255,255,0.80)"
+                - margin-top: 4px
+          - type: custom:button-card
+            name: Anthropic
+            label: Claude Haiku
+            show_label: true
+            show_icon: false
+            tap_action:
+              action: call-service
+              service: pyscript.grocery_suggest_recipes
+              service_data:
+                provider_override: anthropic
+            extra_styles: |
+              @keyframes glow-anthropic {
+                0%, 100% { box-shadow: 0 4px 16px rgba(217,119,6,0.45); }
+                50%      { box-shadow: 0 6px 32px rgba(217,119,6,0.80); }
+              }
+            styles:
+              card:
+                - background: "linear-gradient(135deg, #d97706, #92400e)"
+                - border-radius: 16px
+                - padding: "18px 8px"
+                - "{% if states('input_select.grocery_recipe_provider') == 'anthropic' %}animation: glow-anthropic 2.5s ease-in-out infinite{% else %}box-shadow: 0 3px 14px rgba(217,119,6,0.40){% endif %}"
+              name:
+                - font-size: 16px
+                - font-weight: 800
+                - color: white
+              label:
+                - font-size: 11px
+                - color: "rgba(255,255,255,0.80)"
+                - margin-top: 4px
+
+      # ── Hämta via inställd leverantör ─────────────────────────────
+      - type: custom:button-card
+        name: "🔄  Hämta via inställd leverantör"
+        label: Använder leverantören du valt i Inställningar-fliken
+        show_label: true
+        show_icon: false
         tap_action:
           action: call-service
           service: script.grocery_suggest_recipes_btn
+        styles:
+          card:
+            - background: "linear-gradient(135deg, #37474f, #263238)"
+            - border-radius: 14px
+            - padding: "16px 20px"
+            - box-shadow: "0 2px 10px rgba(0,0,0,0.28)"
+          name:
+            - font-size: 14px
+            - font-weight: 700
+            - color: white
+          label:
+            - font-size: 11px
+            - color: "rgba(255,255,255,.65)"
+            - margin-top: 3px
 
+
+  # ═══════════════════════════════════════════════════════════════════
+  # TAB 4: INSTÄLLNINGAR — Lila identitet  🟣
+  # ═══════════════════════════════════════════════════════════════════
   - title: Inställningar
     path: installningar
     icon: mdi:cog
     cards:
-      - type: entities
-        title: "👨‍🍳 Receptförslag"
-        entities:
-          - entity: input_select.grocery_recipe_provider
-            name: Leverantör
 
+      # ── Header ────────────────────────────────────────────────────
+      - type: custom:button-card
+        name: "Inställningar"
+        label: AI-leverantör och API-nycklar för receptförslag
+        show_label: true
+        show_icon: true
+        icon: mdi:robot-happy-outline
+        tap_action:
+          action: none
+        extra_styles: |
+          @keyframes hdr-purple {
+            0%   { background-position: 0% 50%; }
+            50%  { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+          }
+        styles:
+          card:
+            - background: "linear-gradient(-45deg, #4a148c, #6a1b9a, #7b1fa2, #8e24aa)"
+            - background-size: "300% 300%"
+            - animation: "hdr-purple 10s ease infinite"
+            - border-radius: 20px
+            - padding: "20px 24px"
+            - box-shadow: "0 8px 32px rgba(74, 20, 140, 0.45)"
+          grid:
+            - grid-template-areas: '"i n" "i l"'
+            - grid-template-rows: "min-content min-content"
+            - grid-template-columns: "min-content 1fr"
+          icon:
+            - color: "rgba(255,255,255,0.95)"
+            - width: 40px
+          name:
+            - font-size: 22px
+            - font-weight: 800
+            - color: white
+            - text-align: left
+          label:
+            - font-size: 12px
+            - color: "rgba(255,255,255,0.70)"
+            - text-align: left
+            - margin-top: 4px
+
+      - type: custom:mushroom-select-card
+        entity: input_select.grocery_recipe_provider
+        name: AI-leverantör för receptförslag
+        icon: mdi:robot-outline
+
+      # ── Nyckel-fält per leverantör ────────────────────────────────
       - type: conditional
         conditions:
           - condition: state
             entity: input_select.grocery_recipe_provider
-            state_not: disabled
-          - condition: state
-            entity: input_select.grocery_recipe_provider
-            state_not: ha_ai_task
+            state: groq
         card:
           type: entities
+          title: "🟢 Groq – gratis, ingen kreditkort"
           entities:
-            - entity: input_text.grocery_recipe_api_key
+            - entity: input_text.grocery_api_key_groq
               name: API-nyckel
+          card_mod:
+            style: |
+              ha-card { border-radius: 14px; border-left: 4px solid #f97316; }
 
+      - type: conditional
+        conditions:
+          - condition: state
+            entity: input_select.grocery_recipe_provider
+            state: openrouter
+        card:
+          type: entities
+          title: "🟢 OpenRouter – gratis-tier, 25+ modeller"
+          entities:
+            - entity: input_text.grocery_api_key_openrouter
+              name: API-nyckel
+          card_mod:
+            style: |
+              ha-card { border-radius: 14px; border-left: 4px solid #7c3aed; }
+
+      - type: conditional
+        conditions:
+          - condition: state
+            entity: input_select.grocery_recipe_provider
+            state: mistral
+        card:
+          type: entities
+          title: "🟢 Mistral – gratis-tier"
+          entities:
+            - entity: input_text.grocery_api_key_mistral
+              name: API-nyckel
+          card_mod:
+            style: |
+              ha-card { border-radius: 14px; border-left: 4px solid #db2777; }
+
+      - type: conditional
+        conditions:
+          - condition: state
+            entity: input_select.grocery_recipe_provider
+            state: openai
+        card:
+          type: entities
+          title: "💳 OpenAI – betalt (GPT-4o Mini)"
+          entities:
+            - entity: input_text.grocery_api_key_openai
+              name: API-nyckel
+          card_mod:
+            style: |
+              ha-card { border-radius: 14px; border-left: 4px solid #059669; }
+
+      - type: conditional
+        conditions:
+          - condition: state
+            entity: input_select.grocery_recipe_provider
+            state: anthropic
+        card:
+          type: entities
+          title: "💳 Anthropic – betalt (Claude Haiku)"
+          entities:
+            - entity: input_text.grocery_api_key_anthropic
+              name: API-nyckel
+          card_mod:
+            style: |
+              ha-card { border-radius: 14px; border-left: 4px solid #d97706; }
+
+      # ── Testknapp ─────────────────────────────────────────────────
       - type: conditional
         conditions:
           - condition: state
             entity: input_select.grocery_recipe_provider
             state_not: disabled
         card:
-          type: button
-          name: Testa receptförslag nu
-          icon: mdi:chef-hat
+          type: custom:button-card
+          name: "👨‍🍳  Testa receptförslag nu"
+          show_icon: false
           tap_action:
             action: call-service
             service: script.grocery_suggest_recipes_btn
+          styles:
+            card:
+              - background: "linear-gradient(135deg, #bf360c, #e64a19)"
+              - border-radius: 14px
+              - padding: "16px"
+              - box-shadow: "0 2px 12px rgba(191,54,12,0.35)"
+            name:
+              - font-size: 15px
+              - font-weight: 700
+              - color: white
 
-      - type: conditional
-        conditions:
-          - condition: state
-            entity: input_select.grocery_recipe_provider
-            state: disabled
-        card:
-          type: markdown
-          content: |
-            ### Kom igång med receptförslag
-            Välj en leverantör ovan för att aktivera automatiska receptförslag när varor snart går ut.
-
-            | Leverantör | Kostnad | Hur du skaffar nyckel |
-            |---|---|---|
-            | **groq** | Gratis | [console.groq.com](https://console.groq.com) — skapa konto, ingen kreditkort |
-            | **gemini** | Gratis | [aistudio.google.com](https://aistudio.google.com) — logga in med Google |
-            | **ha_ai_task** | Gratis | Kräver AI-integration i HA (t.ex. Google AI eller OpenRouter) — ingen API-nyckel här |
-            | **anthropic** | Betalt | [console.anthropic.com](https://console.anthropic.com) |
-
+      # ── Instruktioner per leverantör ──────────────────────────────
       - type: conditional
         conditions:
           - condition: state
@@ -114,25 +1057,70 @@ views:
         card:
           type: markdown
           content: |
-            **Groq** — gratis, ingen kreditkort
+            **Groq** — Llama 3.3 70B, helt gratis, ingen kreditkort
             1. Gå till [console.groq.com](https://console.groq.com)
             2. Skapa ett konto
             3. Klicka **API Keys → Create API Key**
             4. Klistra in nyckeln i fältet ovan
+          card_mod:
+            style: |
+              ha-card { border-radius: 14px; }
 
       - type: conditional
         conditions:
           - condition: state
             entity: input_select.grocery_recipe_provider
-            state: gemini
+            state: openrouter
         card:
           type: markdown
           content: |
-            **Google Gemini** — gratis med Google-konto
-            1. Gå till [aistudio.google.com](https://aistudio.google.com)
-            2. Logga in med ditt Google-konto
-            3. Klicka **Get API key → Create API key**
+            **OpenRouter** — 25+ gratis AI-modeller, logga in med GitHub/Google
+            1. Gå till [openrouter.ai/keys](https://openrouter.ai/keys)
+            2. Logga in med Google eller GitHub
+            3. Klicka **Create Key**
             4. Klistra in nyckeln i fältet ovan
+
+            _Modell: `mistralai/mistral-small-3.1-24b-instruct:free` — automatisk fallback vid rate-limit_
+          card_mod:
+            style: |
+              ha-card { border-radius: 14px; }
+
+      - type: conditional
+        conditions:
+          - condition: state
+            entity: input_select.grocery_recipe_provider
+            state: mistral
+        card:
+          type: markdown
+          content: |
+            **Mistral AI** — Mistral Small, gratis-tier (kräver telefonnummer, ej kreditkort)
+            1. Gå till [console.mistral.ai](https://console.mistral.ai)
+            2. Skapa ett konto
+            3. Klicka **API Keys → Create new key**
+            4. Klistra in nyckeln i fältet ovan
+          card_mod:
+            style: |
+              ha-card { border-radius: 14px; }
+
+      - type: conditional
+        conditions:
+          - condition: state
+            entity: input_select.grocery_recipe_provider
+            state: openai
+        card:
+          type: markdown
+          content: |
+            **OpenAI** — GPT-4o Mini (~$0.003/receptförslag)
+
+            > ⚠️ **ChatGPT Plus ≠ API-åtkomst** — Plus ger tillgång till chat.openai.com, inte API:et.
+
+            1. Gå till [platform.openai.com](https://platform.openai.com) _(separat konto)_
+            2. Lägg till betalningsmetod
+            3. **API Keys → Create new secret key**
+            4. Klistra in nyckeln i fältet ovan
+          card_mod:
+            style: |
+              ha-card { border-radius: 14px; }
 
       - type: conditional
         conditions:
@@ -142,11 +1130,17 @@ views:
         card:
           type: markdown
           content: |
-            **Anthropic Claude** — betaltjänst, bäst kvalitet
-            1. Gå till [console.anthropic.com](https://console.anthropic.com)
-            2. Skapa ett konto och lägg till betalningsmetod
-            3. Klicka **API Keys → Create Key**
+            **Anthropic Claude** — Claude Haiku, bäst kvalitet
+
+            > ⚠️ **Claude.ai Pro ≠ API-åtkomst** — Pro ger tillgång till claude.ai, inte API:et.
+
+            1. Gå till [console.anthropic.com](https://console.anthropic.com) _(separat konto)_
+            2. Lägg till betalningsmetod
+            3. **API Keys → Create Key**
             4. Klistra in nyckeln i fältet ovan
+          card_mod:
+            style: |
+              ha-card { border-radius: 14px; }
 
       - type: conditional
         conditions:
@@ -156,21 +1150,255 @@ views:
         card:
           type: markdown
           content: |
-            **HA AI Task** — ingen API-nyckel behövs här
+            **HA AI Task** — Ingen API-nyckel behövs här
             Kräver att du har en AI-integration konfigurerad i HA:
             **Inställningar → Enheter & tjänster → Lägg till integration**
             Sök efter t.ex. **Google Generative AI** eller **OpenRouter**
+          card_mod:
+            style: |
+              ha-card { border-radius: 14px; border-left: 4px solid #0097a7; }
 
+      # ── Översikt när inaktiverat ──────────────────────────────────
+      - type: conditional
+        conditions:
+          - condition: state
+            entity: input_select.grocery_recipe_provider
+            state: disabled
+        card:
+          type: markdown
+          content: |
+            ### Välj en AI-leverantör ovan för att aktivera receptförslag
+
+            #### 🟢 Gratis — ingen kreditkort krävs
+            | Leverantör | Modell | Nyckel från |
+            |---|---|---|
+            | **groq** | Llama 3.3 70B | [console.groq.com](https://console.groq.com) |
+            | **openrouter** | Mistral 24B (fri) | [openrouter.ai/keys](https://openrouter.ai/keys) |
+            | **mistral** | Mistral Small | [console.mistral.ai](https://console.mistral.ai) |
+            | **ha_ai_task** | Valfri HA-AI | Ingen nyckel — kräver AI-integration i HA |
+
+            #### 💳 Betalt _(kräver separat API-konto — ej samma som Plus/Pro-prenumeration)_
+            | Leverantör | Modell | Nyckel från |
+            |---|---|---|
+            | **openai** | GPT-4o Mini | [platform.openai.com](https://platform.openai.com) |
+            | **anthropic** | Claude Haiku | [console.anthropic.com](https://console.anthropic.com) |
+          card_mod:
+            style: |
+              ha-card { border-radius: 14px; }
+
+      # ── Matlagningseffekt – sektion ───────────────────────────────
+      - type: custom:button-card
+        name: "⚡  Matlagningseffekt (för energiestimering)"
+        show_icon: false
+        tap_action:
+          action: none
+        styles:
+          card:
+            - background: "rgba(230, 74, 25, 0.10)"
+            - border-left: "3px solid #e64a19"
+            - border-radius: 10px
+            - box-shadow: none
+            - padding: "8px 14px"
+          name:
+            - font-size: 11px
+            - font-weight: 800
+            - letter-spacing: "1.2px"
+            - color: "#e64a19"
+            - text-align: left
+
+      - type: entities
+        title: Effektinställningar (W)
+        entities:
+          - entity: input_number.grocery_power_spis
+            name: "🍳 Spis"
+          - entity: input_number.grocery_power_ugn
+            name: "🔥 Ugn"
+          - entity: input_number.grocery_power_mikro
+            name: "📡 Mikrovågsugn"
+        card_mod:
+          style: |
+            ha-card { border-radius: 14px; }
+
+      - type: markdown
+        content: |
+          Dessa värden används för att **uppskatta energikostnad** när AI ger ett receptförslag.
+          Är din spis starkare eller svagare? Justera här — det påverkar kostnadsberäkningen.
+
+          Vid **Tibber Pulse-session** (Start/Stopp i receptfliken) mäts faktisk förbrukning direkt — då spelar dessa värden ingen roll.
+        card_mod:
+          style: |
+            ha-card { border-radius: 14px; }
+
+
+  # ═══════════════════════════════════════════════════════════════════
+  # TAB 5: SVINNDAGBOK — Teal identitet  🩵
+  # ═══════════════════════════════════════════════════════════════════
   - title: Svinndagbok
     path: svinndagbok
-    icon: mdi:trash-can-outline
+    icon: mdi:recycle
     cards:
-      - type: entities
-        title: Svinnöversikt
-        entities:
-          - entity: sensor.grocery_waste_log
-            name: Totalt registrerade svinn
 
+      # ── Header ────────────────────────────────────────────────────
+      - type: custom:button-card
+        name: "Svinndagbok"
+        label: Historik över slängda varor · Minska matsvinn
+        show_label: true
+        show_icon: true
+        icon: mdi:leaf-circle-outline
+        tap_action:
+          action: none
+        extra_styles: |
+          @keyframes hdr-teal {
+            0%   { background-position: 0% 50%; }
+            50%  { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+          }
+        styles:
+          card:
+            - background: "linear-gradient(-45deg, #004d40, #00695c, #00796b, #00897b)"
+            - background-size: "300% 300%"
+            - animation: "hdr-teal 10s ease infinite"
+            - border-radius: 20px
+            - padding: "20px 24px"
+            - box-shadow: "0 8px 32px rgba(0, 77, 64, 0.45)"
+          grid:
+            - grid-template-areas: '"i n" "i l"'
+            - grid-template-rows: "min-content min-content"
+            - grid-template-columns: "min-content 1fr"
+          icon:
+            - color: "rgba(255,255,255,0.95)"
+            - width: 40px
+          name:
+            - font-size: 22px
+            - font-weight: 800
+            - color: white
+            - text-align: left
+          label:
+            - font-size: 12px
+            - color: "rgba(255,255,255,0.70)"
+            - text-align: left
+            - margin-top: 4px
+
+      # ── Totalt svinn – glassmorphism big-number ───────────────────
+      - type: custom:button-card
+        entity: sensor.grocery_waste_log
+        show_name: false
+        show_icon: false
+        show_state: false
+        tap_action:
+          action: none
+        custom_fields:
+          body: |
+            [[[
+              const v = entity ? entity.state : '–';
+              return `<div style="text-align:center;padding:14px 16px 12px;">
+                <div style="font-size:11px;color:rgba(0,105,92,0.60);margin-bottom:4px;">🗑️</div>
+                <div style="font-size:36px;font-weight:900;color:#00695c;line-height:1;">${v}</div>
+                <div style="font-size:9px;letter-spacing:1.8px;text-transform:uppercase;color:rgba(0,105,92,0.60);margin-top:7px;">VAROR REGISTRERADE TOTALT</div>
+              </div>`;
+            ]]]
+        styles:
+          card:
+            - background: "rgba(0,121,107,0.10)"
+            - border: "1px solid rgba(0,121,107,0.28)"
+            - border-radius: "20px"
+            - padding: "0"
+            - box-shadow: "0 4px 24px rgba(0,77,64,0.18)"
+          custom_fields:
+            body:
+              - width: "100%"
+
+      # ── ApexCharts — svinnutveckling (kumulativt, 30 dagar) ───────
+      - type: custom:apexcharts-card
+        header:
+          show: true
+          title: Svinnutveckling — senaste 30 dagarna
+          show_states: true
+          colorize_states: true
+        graph_span: 30d
+        apex_config:
+          chart:
+            toolbar:
+              show: false
+            zoom:
+              enabled: false
+          stroke:
+            curve: stepline
+            width: 2
+          fill:
+            type: gradient
+            gradient:
+              shadeIntensity: 1
+              opacityFrom: 0.55
+              opacityTo: 0.05
+              stops:
+                - 0
+                - 100
+          grid:
+            borderColor: "rgba(128,128,128,0.12)"
+          tooltip:
+            theme: dark
+        series:
+          - entity: sensor.grocery_waste_log
+            name: Totalt svinn
+            color: "#00796b"
+            stroke_width: 2
+            fill_raw: last
+            show:
+              in_header: true
+              legend_value: true
+        card_mod:
+          style: |
+            ha-card {
+              border-radius: 18px;
+              border-left: 4px solid #00796b;
+            }
+
+      # ── Vanligaste svinnvaror ─────────────────────────────────────
+      - type: markdown
+        title: "🏆 Vanligaste svinnvaror"
+        content: |
+          {% set log = state_attr('sensor.grocery_waste_log', 'log') | default([]) | list %}
+          {% if log | length == 0 %}
+          _Ingen historik ännu — bra jobbat!_ 🌱
+          {% else %}
+          {% set names = log | map(attribute='name') | unique | list | sort %}
+          {% set ns = namespace(rows=[]) %}
+          {% for name in names %}
+            {% set count = log | selectattr('name','eq', name) | list | count %}
+            {% set ns.rows = ns.rows + [{'name': name, 'count': count}] %}
+          {% endfor %}
+          {% set sorted = ns.rows | sort(attribute='count', reverse=true) %}
+          {% for row in sorted[:8] %}
+          {% set bar_filled = (row.count * 3) | int %}
+          {% set bar = '▓' * [bar_filled, 12] | min + '░' * (12 - [bar_filled, 12] | min) %}
+          **{{ row.name }}** `{{ bar }}` {{ row.count }}×
+          {% endfor %}
+          {% if names | length > 8 %}
+          _… och {{ names | length - 8 }} fler_
+          {% endif %}
+          {% endif %}
+        card_mod:
+          style:
+            .: |
+              ha-card {
+                border-radius: 16px;
+                background: rgba(0,121,107,0.06);
+                border: 1px solid rgba(0,121,107,0.18);
+                border-top: 4px solid #00897b;
+              }
+            "ha-markdown$": |
+              strong { color: var(--primary-text-color); }
+              code {
+                font-size: 0.70em;
+                letter-spacing: -1px;
+                color: #00897b;
+                background: transparent;
+                font-family: monospace;
+              }
+              p { margin: 7px 0; line-height: 1.5; }
+
+      # ── Denna månaden ─────────────────────────────────────────────
       - type: markdown
         title: "📅 Denna månaden"
         content: |
@@ -183,7 +1411,7 @@ views:
             {% endif %}
           {% endfor %}
           {% if ns.monthly | length == 0 %}
-          _Inget svinn registrerat denna månad._
+          _Inget svinn registrerat denna månad. Imponerande!_ 🌱
           {% else %}
           **{{ ns.monthly | length }} varor** slängda hittills i {{ now().strftime('%B %Y') }}
 
@@ -191,7 +1419,16 @@ views:
           - **{{ item.date[8:] }}/{{ item.date[5:7] }}** — {{ item.name }}{% if item.source not in ['mobile', 'manual'] %} _({{ item.source }})_{% endif %}
           {% endfor %}
           {% endif %}
+        card_mod:
+          style: |
+            ha-card {
+              border-radius: 16px;
+              border-top: 4px solid #00796b;
+              border-left: none;
+              background: rgba(0, 121, 107, 0.06);
+            }
 
+      # ── Historik ──────────────────────────────────────────────────
       - type: markdown
         title: "🗓️ Svinnhistorik"
         content: |
@@ -214,3 +1451,9 @@ views:
           _... och {{ log | length - 60 }} äldre poster_
           {% endif %}
           {% endif %}
+        card_mod:
+          style: |
+            ha-card {
+              border-radius: 16px;
+              border-left: 3px dashed rgba(0, 121, 107, 0.45);
+            }

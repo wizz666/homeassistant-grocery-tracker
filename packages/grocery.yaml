@@ -38,38 +38,160 @@ script:
     sequence:
       - service: pyscript.grocery_suggest_recipes
 
+  grocery_clear_shopping_list_btn:
+    alias: "Grocery – Jag är klar med handlingen"
+    icon: mdi:cart-check
+    sequence:
+      - service: pyscript.grocery_clear_completed_shopping_list
+
+  grocery_start_cooking_btn:
+    alias: "Grocery – Starta matlagningssession"
+    icon: mdi:pot-steam
+    sequence:
+      - service: pyscript.grocery_start_cooking
+
+  grocery_stop_cooking_btn:
+    alias: "Grocery – Avsluta matlagningssession"
+    icon: mdi:pot-steam-outline
+    sequence:
+      - service: pyscript.grocery_stop_cooking
+
 # ── Receptförslag – konfiguration ────────────────────────────────────────────
-# Välj leverantör i HA och fyll i din API-nyckel.
-# Groq:      gratis på groq.com (ingen kreditkort)
-# Gemini:    gratis på aistudio.google.com (ingen kreditkort)
-# Anthropic: betalt på console.anthropic.com
-# ha_ai_task: kräver HA 2025.7+ med AI-integration konfigurerad, ingen API-nyckel här
+# GRATIS (ingen kreditkort):
+#   groq       – Llama 3.3 70B    – console.groq.com
+#   gemini     – Gemini 2.0 Flash – aistudio.google.com
+#   openrouter – Llama/Mistral    – openrouter.ai/keys  (välj :free-modell)
+#   mistral    – Mistral Small    – console.mistral.ai
+#   ha_ai_task – kräver AI-integration i HA, ingen nyckel här
+# BETALT:
+#   openai     – GPT-4o Mini      – platform.openai.com
+#   anthropic  – Claude Haiku     – console.anthropic.com
 input_select:
   grocery_recipe_provider:
-    name: "Receptförslag – Leverantör"
+    name: "Receptförslag – AI-leverantör"
     options:
       - disabled
       - groq
-      - gemini
-      - anthropic
+      - openrouter
+      - mistral
       - ha_ai_task
+      - openai
+      - anthropic
     initial: disabled
     icon: mdi:robot
 
 input_text:
-  grocery_recipe_api_key:
-    name: "Receptförslag – API-nyckel"
+  grocery_api_key_groq:
+    name: "API-nyckel – Groq"
     mode: password
     max: 200
     icon: mdi:key
 
-# ── USB-scanner helper ────────────────────────────────────────────────────────
-# USB-streckkodsläsare skriver streckkod + Enter i detta fält.
-# Sätt focus på fältet i en dedikerad dashboard-panel.
+  grocery_api_key_gemini:
+    name: "API-nyckel – Google Gemini"
+    mode: password
+    max: 200
+    icon: mdi:key
+
+  grocery_api_key_openrouter:
+    name: "API-nyckel – OpenRouter"
+    mode: password
+    max: 200
+    icon: mdi:key
+
+  grocery_api_key_mistral:
+    name: "API-nyckel – Mistral"
+    mode: password
+    max: 200
+    icon: mdi:key
+
+  grocery_api_key_openai:
+    name: "API-nyckel – OpenAI"
+    mode: password
+    max: 200
+    icon: mdi:key
+
+  grocery_api_key_anthropic:
+    name: "API-nyckel – Anthropic"
+    mode: password
+    max: 200
+    icon: mdi:key
+
+  # ── USB-scanner helper ──────────────────────────────────────────────────────
+  # USB-streckkodsläsare skriver streckkod + Enter i detta fält.
   grocery_usb_barcode:
     name: "USB Streckkodsläsare"
     icon: mdi:barcode-scan
     max: 50
+
+# ── Matlagningseffekt – konfigurerbar ────────────────────────────────────────
+# Används när AI-modellen skattar energi. Kan justeras i Inställningar-fliken.
+input_number:
+
+  grocery_power_spis:
+    name: "Matlagning – Spis (effekt)"
+    min: 500
+    max: 10000
+    step: 100
+    initial: 2000
+    unit_of_measurement: W
+    icon: mdi:stove
+
+  grocery_power_ugn:
+    name: "Matlagning – Ugn (effekt)"
+    min: 500
+    max: 6000
+    step: 100
+    initial: 2500
+    unit_of_measurement: W
+    icon: mdi:stove
+
+  grocery_power_mikro:
+    name: "Matlagning – Mikrovågsugn (effekt)"
+    min: 200
+    max: 2000
+    step: 50
+    initial: 800
+    unit_of_measurement: W
+    icon: mdi:microwave
+
+  # ── Session-state (Tibber Pulse) ─────────────────────────────────────────
+  grocery_cooking_kwh_start:
+    name: "Matlagning – Start-kWh (intern)"
+    min: 0
+    max: 99999
+    step: 0.001
+    initial: 0
+    unit_of_measurement: kWh
+    icon: mdi:lightning-bolt
+    mode: box
+
+  grocery_actual_cooking_kwh:
+    name: "Matlagning – Faktisk förbrukning (kWh)"
+    min: 0
+    max: 999
+    step: 0.001
+    initial: 0
+    unit_of_measurement: kWh
+    icon: mdi:lightning-bolt
+    mode: box
+
+  grocery_actual_cooking_cost:
+    name: "Matlagning – Faktisk kostnad (kr)"
+    min: 0
+    max: 9999
+    step: 0.01
+    initial: 0
+    unit_of_measurement: kr
+    icon: mdi:cash
+    mode: box
+
+# ── Matlagningssession – aktiv-flagga ────────────────────────────────────────
+input_boolean:
+
+  grocery_cooking_active:
+    name: "Matlagning – Session aktiv"
+    icon: mdi:pot-steam
 
 # ── Automationer ──────────────────────────────────────────────────────────────
 automation:
