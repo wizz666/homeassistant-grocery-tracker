@@ -1,5 +1,5 @@
 """
-Grocery Tracker – Home Assistant Pyscript v1.6
+Grocery Tracker – Home Assistant Pyscript v1.9
 ===============================================
 Services:
   pyscript.grocery_scan_add(barcode, quantity=1, expiry_date=None, source="mobile")
@@ -28,6 +28,20 @@ SHOPPING_LIST_ENTITY = "todo.shopping_list"
 SHOPPING_LIST_FILE   = "/config/.shopping_list.json"
 OFF_API = "https://world.openfoodfacts.org/api/v2/product/{barcode}.json"
 OFF_HEADERS = {"User-Agent": "HomeAssistant-GroceryTracker/1.6 (homeassistant)"}
+
+TIBBER_PULSE_CONSUMPTION = "sensor.tibber_pulse_dammtorpsgatan_22_accumulated_consumption"
+TIBBER_PULSE_POWER = "sensor.tibber_pulse_dammtorpsgatan_22_power"
+
+# ─── Säker state-hämtning ─────────────────────────────────────────────────────
+# state.get() kastar NameError i pyscript om entity inte existerar ännu.
+# Använd _sget() överallt för HA-helpers och sensorer som kan saknas.
+
+def _sget(entity_id, default=None):
+    try:
+        val = state.get(entity_id)
+        return val if val is not None else default
+    except Exception:
+        return default
 
 # ─── Fil-I/O via task.executor ────────────────────────────────────────────────
 
@@ -535,14 +549,14 @@ async def _daily_expiry_check():
     log.info(f"[GroceryTracker] Daglig koll: {len(expiring)} snart utgångna, {len(expired)} utgångna")
 
     # Trigga receptförslag om leverantör är konfigurerad
-    provider = state.get("input_select.grocery_recipe_provider") or "disabled"
+    provider = _sget("input_select.grocery_recipe_provider", "disabled")
     if provider != "disabled":
         await _do_suggest_recipes(expired + expiring)
 
 
 # ─── Receptförslag via LLM ───────────────────────────────────────────────────
 
-async def _do_suggest_recipes(candidates):
+async def _do_suggest_recipes(candidates, provider_override=None):
     """Intern hjälpare: bygg prompt och skicka receptförslag."""
     if not candidates:
         return
@@ -552,32 +566,149 @@ async def _do_suggest_recipes(candidates):
         f"{', '.join(ingredients)}. "
         f"Föreslå 2-3 enkla och goda recept som använder dessa ingredienser. "
         f"Håll varje recept kort: namn, huvudingredienser och en mening om tillagning. "
-        f"Svara på svenska."
+        f"Svara på svenska. "
+        f"Lägg till allra sist, på en ensam rad (inga radbrytningar efter): "
+        f"ENERGI: Xmin REDSKAP: spis (eller ugn eller mikro) "
+        f"där X är uppskattad total tillagningstid i minuter. "
+        f"Exempel: ENERGI: 25min REDSKAP: spis"
     )
-    result = await _call_recipe_llm(prompt)
+    result = await _call_recipe_llm(prompt, provider_override=provider_override)
     if result:
+        import re as _re
+        import datetime as _dt
+
+        # ── Parsa och ta bort ENERGI-raden ────────────────────────────────────
+        try:
+            _WATT = {
+                "spis": int(float(_sget("input_number.grocery_power_spis", 2000))),
+                "ugn":  int(float(_sget("input_number.grocery_power_ugn",  2500))),
+                "mikro": int(float(_sget("input_number.grocery_power_mikro", 800))),
+            }
+        except (ValueError, TypeError):
+            _WATT = {"spis": 2000, "ugn": 2500, "mikro": 800}
+        cooking_minutes = None
+        cooking_appliance = None
+        cooking_kwh = None
+        cooking_cost_kr = None
+        electricity_price = None
+
+        energy_match = _re.search(
+            r'ENERGI:\s*(\d+)\s*min\s+REDSKAP:\s*(spis|ugn|mikro)',
+            result, _re.IGNORECASE
+        )
+        if energy_match:
+            cooking_minutes = int(energy_match.group(1))
+            cooking_appliance = energy_match.group(2).lower()
+            _watt = _WATT.get(cooking_appliance, 2000)
+            cooking_kwh = round(_watt / 1000 * cooking_minutes / 60, 2)
+            try:
+                _price = float(_sget("sensor.dammtorpsgatan_22_current_electricity_price", 0))
+                electricity_price = round(_price, 2)
+                cooking_cost_kr = round(cooking_kwh * _price, 2)
+            except (ValueError, TypeError):
+                pass
+            # Rensa ENERGI-raden ur recepttexten
+            result = _re.sub(
+                r'\n?ENERGI:\s*\d+\s*min\s+REDSKAP:\s*\w+[^\n]*', '', result
+            ).strip()
+            log.info(
+                f"[GroceryTracker] Energi: {cooking_appliance} {cooking_minutes}min "
+                f"= {cooking_kwh} kWh = {cooking_cost_kr} kr "
+                f"(elpris {electricity_price} kr/kWh)"
+            )
+        else:
+            log.info("[GroceryTracker] AI returnerade ingen ENERGI-rad – hoppar över energiberäkning")
+
+        updated = _dt.datetime.now().strftime("%d %b %Y, %H:%M")
+
+        # Nollställ Tibber Pulse-session när nytt recept genereras
+        try:
+            input_number.set_value(entity_id="input_number.grocery_actual_cooking_kwh", value=0)
+            input_number.set_value(entity_id="input_number.grocery_actual_cooking_cost", value=0)
+            input_boolean.turn_off(entity_id="input_boolean.grocery_cooking_active")
+        except Exception:
+            pass
+
+        # Spara i sensor med energiattribut
+        state.set("sensor.grocery_last_recipe", updated, {
+            "recipe": result,
+            "ingredients": ", ".join(ingredients),
+            "cooking_minutes": cooking_minutes,
+            "cooking_appliance": cooking_appliance,
+            "cooking_kwh": cooking_kwh,
+            "cooking_cost_kr": cooking_cost_kr,
+            "electricity_price": electricity_price,
+            "friendly_name": "Senaste receptförslag",
+        })
+
+        # Bygg notis (med energiinfo om tillgänglig)
+        energy_txt = ""
+        if cooking_kwh and cooking_cost_kr is not None:
+            energy_txt = f"\n⚡ {cooking_appliance} {cooking_minutes} min · {cooking_kwh} kWh · ca {cooking_cost_kr} kr"
+
+        persistent_notification.create(
+            title="👨‍🍳 Receptförslag – använd innan det går ut!",
+            message=result + energy_txt,
+            notification_id="grocery_recipes",
+        )
+
         notify.notify(
             title="👨‍🍳 Receptförslag – använd innan det går ut!",
-            message=result,
+            message=f"Tryck för att se recept på: {', '.join(ingredients)}",
+            data={"url": "/grocery-dashboard/recept"},
         )
-        log.info(f"[GroceryTracker] Receptförslag skickat för: {ingredients}")
+        log.info(f"[GroceryTracker] Receptförslag sparat och skickat för: {ingredients}")
 
 
-async def _call_recipe_llm(prompt):
+# Leverantör → input_text-entity för API-nyckel (per leverantör)
+_PROVIDER_KEY_ENTITY = {
+    "groq":       "input_text.grocery_api_key_groq",
+    "gemini":     "input_text.grocery_api_key_gemini",
+    "openrouter": "input_text.grocery_api_key_openrouter",
+    "mistral":    "input_text.grocery_api_key_mistral",
+    "openai":     "input_text.grocery_api_key_openai",
+    "anthropic":  "input_text.grocery_api_key_anthropic",
+}
+
+
+async def _call_recipe_llm(prompt, provider_override=None):
     """Anropa konfigurerad LLM-leverantör. Faller tillbaka på ha_ai_task om API-nyckel saknas."""
-    provider = state.get("input_select.grocery_recipe_provider") or "disabled"
-    api_key  = state.get("input_text.grocery_recipe_api_key") or ""
+    provider = provider_override or _sget("input_select.grocery_recipe_provider", "disabled")
+
+    # Läs leverantörsspecifik API-nyckel
+    key_entity = _PROVIDER_KEY_ENTITY.get(provider)
+    api_key = _sget(key_entity, "") if key_entity else ""
 
     # Auto-fallback: om nyckel saknas för en leverantör som kräver det → ha_ai_task
-    needs_key = provider in ("groq", "gemini", "anthropic")
-    if needs_key and not api_key:
+    if key_entity and not api_key:
         log.info(f"[GroceryTracker] API-nyckel saknas för {provider} – faller tillbaka på ha_ai_task")
         return await _call_ha_ai_task(prompt)
 
     if provider == "groq":
-        return await _call_groq(prompt, api_key)
+        return await _call_openai_compatible(
+            prompt, api_key,
+            url="https://api.groq.com/openai/v1/chat/completions",
+            model="llama-3.3-70b-versatile",
+            provider_name="Groq",
+        )
     elif provider == "gemini":
         return await _call_gemini(prompt, api_key)
+    elif provider == "openrouter":
+        return await _call_openrouter(prompt, api_key)
+    elif provider == "mistral":
+        return await _call_openai_compatible(
+            prompt, api_key,
+            url="https://api.mistral.ai/v1/chat/completions",
+            model="mistral-small-latest",
+            provider_name="Mistral",
+        )
+    elif provider == "openai":
+        return await _call_openai_compatible(
+            prompt, api_key,
+            url="https://api.openai.com/v1/chat/completions",
+            model="gpt-4o-mini",
+            provider_name="OpenAI",
+        )
     elif provider == "anthropic":
         return await _call_anthropic(prompt, api_key)
     elif provider == "ha_ai_task":
@@ -587,62 +718,146 @@ async def _call_recipe_llm(prompt):
         return None
 
 
-async def _call_groq(prompt, api_key):
+# Gratis-modeller på OpenRouter – provas i tur och ordning vid rate-limit (429)
+_OPENROUTER_FREE_MODELS = [
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "mistralai/mistral-small-3.1-24b-instruct:free",
+    "google/gemma-3-27b-it:free",
+    "meta-llama/llama-3.2-3b-instruct:free",
+]
+
+async def _call_openrouter(prompt, api_key):
+    """Anropa OpenRouter med automatisk fallback till nästa modell vid rate-limit (429)."""
     import aiohttp
-    if not api_key:
-        log.warning("[GroceryTracker] Groq: API-nyckel saknas i input_text.grocery_recipe_api_key")
-        return None
-    url = "https://api.groq.com/openai/v1/chat/completions"
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://www.home-assistant.io",
+        "X-Title": "HA Grocery Tracker",
+    }
+    for model in _OPENROUTER_FREE_MODELS:
+        payload = {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 700,
+            "temperature": 0.7,
+        }
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=payload, headers=headers,
+                                        timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                    if resp.status == 200:
+                        data = await resp.json(content_type=None)
+                        choices = data.get("choices") or []
+                        content = choices[0].get("message", {}).get("content") if choices else None
+                        if content:
+                            log.info(f"[GroceryTracker] OpenRouter: svar från {model}")
+                            return content.strip()
+                        log.warning(f"[GroceryTracker] OpenRouter: tomt svar från {model}")
+                    elif resp.status == 429:
+                        log.info(f"[GroceryTracker] OpenRouter: {model} rate-limitad, provar nästa modell...")
+                        continue
+                    else:
+                        body = await resp.text()
+                        log.warning(f"[GroceryTracker] OpenRouter HTTP {resp.status} ({model}): {body[:200]}")
+        except aiohttp.ServerTimeoutError:
+            log.warning(f"[GroceryTracker] OpenRouter: timeout för {model}, provar nästa...")
+            continue
+        except Exception as e:
+            log.warning(f"[GroceryTracker] OpenRouter-anrop misslyckades ({model}): {e}")
+    log.warning("[GroceryTracker] OpenRouter: alla modeller rate-limitade eller misslyckades")
+    return None
+
+
+async def _call_openai_compatible(prompt, api_key, url, model, provider_name="LLM", extra_headers=None, timeout=20):
+    """Anropa OpenAI-kompatibelt API (Groq, OpenRouter, Mistral, OpenAI m.fl.)."""
+    import aiohttp
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    if extra_headers:
+        headers.update(extra_headers)
     payload = {
-        "model": "llama-3.1-8b-instant",
+        "model": model,
         "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 500,
+        "max_tokens": 700,
         "temperature": 0.7,
     }
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(url, json=payload, headers=headers,
-                                    timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                                    timeout=aiohttp.ClientTimeout(total=timeout)) as resp:
                 if resp.status == 200:
                     data = await resp.json(content_type=None)
-                    return data["choices"][0]["message"]["content"].strip()
-                log.warning(f"[GroceryTracker] Groq API-fel: {resp.status}")
+                    choices = data.get("choices") or []
+                    content = choices[0].get("message", {}).get("content") if choices else None
+                    if not content:
+                        log.warning(f"[GroceryTracker] {provider_name}: tomt svar (content=null). Modell: {model}")
+                        return None
+                    return content.strip()
+                body = await resp.text()
+                log.warning(f"[GroceryTracker] {provider_name} HTTP {resp.status}: {body[:300]}")
+    except aiohttp.ServerTimeoutError:
+        log.warning(f"[GroceryTracker] {provider_name}: timeout efter {timeout}s (modell {model} kanske långsam)")
     except Exception as e:
-        log.warning(f"[GroceryTracker] Groq-anrop misslyckades: {e}")
+        log.warning(f"[GroceryTracker] {provider_name}-anrop misslyckades: {e}")
     return None
 
+
+# Gemini-modeller på v1beta – provas i tur och ordning vid rate-limit
+# (rate-limit på 15 req/min är bara ett problem vid intensiv testning,
+#  inte vid normal daglig användning på 1 receptförslag/dag)
+_GEMINI_MODELS = [
+    "gemini-2.0-flash",
+    "gemini-2.0-flash-lite",
+    "gemini-2.0-flash-001",
+]
 
 async def _call_gemini(prompt, api_key):
     import aiohttp
     if not api_key:
-        log.warning("[GroceryTracker] Gemini: API-nyckel saknas i input_text.grocery_recipe_api_key")
+        log.warning("[GroceryTracker] Gemini: API-nyckel saknas")
         return None
-    url = (
-        f"https://generativelanguage.googleapis.com/v1beta/models/"
-        f"gemini-2.0-flash:generateContent?key={api_key}"
-    )
+    base = "https://generativelanguage.googleapis.com/v1beta/models"
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"maxOutputTokens": 500, "temperature": 0.7},
+        "generationConfig": {"maxOutputTokens": 700, "temperature": 0.7},
     }
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, json=payload,
-                                    timeout=aiohttp.ClientTimeout(total=15)) as resp:
-                if resp.status == 200:
-                    data = await resp.json(content_type=None)
-                    return data["candidates"][0]["content"]["parts"][0]["text"].strip()
-                log.warning(f"[GroceryTracker] Gemini API-fel: {resp.status}")
-    except Exception as e:
-        log.warning(f"[GroceryTracker] Gemini-anrop misslyckades: {e}")
+    for model in _GEMINI_MODELS:
+        url = f"{base}/{model}:generateContent?key={api_key}"
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=payload,
+                                        timeout=aiohttp.ClientTimeout(total=20)) as resp:
+                    if resp.status == 200:
+                        data = await resp.json(content_type=None)
+                        candidates = data.get("candidates") or []
+                        if candidates:
+                            parts = candidates[0].get("content", {}).get("parts") or []
+                            text = parts[0].get("text", "").strip() if parts else ""
+                            if text:
+                                log.info(f"[GroceryTracker] Gemini: svar från {model}")
+                                return text
+                        log.warning(f"[GroceryTracker] Gemini: tomt svar från {model}")
+                    elif resp.status == 429:
+                        body = await resp.text()
+                        if "quota" in body.lower():
+                            log.warning(f"[GroceryTracker] Gemini: dagkvoten slut för {model} (återställs vid midnatt). Provar nästa modell...")
+                        else:
+                            log.warning(f"[GroceryTracker] Gemini: rate-limit för {model}, provar nästa...")
+                        continue
+                    else:
+                        body = await resp.text()
+                        log.warning(f"[GroceryTracker] Gemini HTTP {resp.status} ({model}): {body[:200]}")
+        except Exception as e:
+            log.warning(f"[GroceryTracker] Gemini-anrop misslyckades ({model}): {e}")
+    log.warning("[GroceryTracker] Gemini: alla modeller misslyckades – troligen dagkvot slut (återställs imorgon ~09:00 svensk tid) eller för snabb testning")
     return None
 
 
 async def _call_anthropic(prompt, api_key):
     import aiohttp
     if not api_key:
-        log.warning("[GroceryTracker] Anthropic: API-nyckel saknas i input_text.grocery_recipe_api_key")
+        log.warning("[GroceryTracker] Anthropic: API-nyckel saknas")
         return None
     url = "https://api.anthropic.com/v1/messages"
     headers = {
@@ -652,7 +867,7 @@ async def _call_anthropic(prompt, api_key):
     }
     payload = {
         "model": "claude-haiku-4-5-20251001",
-        "max_tokens": 500,
+        "max_tokens": 700,
         "messages": [{"role": "user", "content": prompt}],
     }
     try:
@@ -682,13 +897,15 @@ async def _call_ha_ai_task(prompt):
 
 
 @service
-async def grocery_suggest_recipes():
-    """Hämta varor som snart går ut och skicka receptförslag via konfigurerad LLM."""
-    provider = state.get("input_select.grocery_recipe_provider") or "disabled"
-    if provider == "disabled":
+async def grocery_suggest_recipes(provider_override=None):
+    """Hämta varor som snart går ut och skicka receptförslag via konfigurerad (eller angiven) LLM."""
+    # Om provider_override är satt (från leverantörsknapp i dashboard) används den direkt
+    # utan att kontrollera den konfigurerade providern
+    effective_provider = provider_override or _sget("input_select.grocery_recipe_provider", "disabled")
+    if not provider_override and effective_provider == "disabled":
         persistent_notification.create(
             title="👨‍🍳 Receptförslag inaktiverat",
-            message="Välj en leverantör i input_select.grocery_recipe_provider för att aktivera.",
+            message="Välj en leverantör i Inställningar-fliken eller klicka en leverantörsknapp direkt.",
             notification_id="grocery_recipes",
         )
         return
@@ -705,7 +922,117 @@ async def grocery_suggest_recipes():
         )
         return
 
-    await _do_suggest_recipes(candidates)
+    await _do_suggest_recipes(candidates, provider_override=provider_override)
+
+
+@service
+async def grocery_clear_completed_shopping_list():
+    """Ta bort alla inhandlade (bockade) varor från inköpslistan. Obockade varor behålls."""
+    try:
+        text = await task.executor(
+            pathlib.Path(SHOPPING_LIST_FILE).read_text, encoding="utf-8"
+        )
+        raw = json.loads(text)
+        completed = [i for i in raw if i.get("complete", False)]
+    except Exception as e:
+        log.warning(f"[GroceryTracker] Kunde inte läsa inköpslista: {e}")
+        return
+
+    if not completed:
+        persistent_notification.create(
+            title="🛒 Inköpslistan",
+            message="Inga inhandlade varor att ta bort.",
+            notification_id="grocery_shopping_done",
+        )
+        return
+
+    for item in completed:
+        name = item.get("name", "")
+        if name:
+            todo.remove_item(entity_id=SHOPPING_LIST_ENTITY, item=name)
+
+    persistent_notification.create(
+        title="🛒 Handlingen klar!",
+        message=f"Tog bort {len(completed)} inhandlade varor. Kvarvarande obockade varor finns kvar.",
+        notification_id="grocery_shopping_done",
+    )
+    log.info(f"[GroceryTracker] Rensade {len(completed)} inhandlade varor från inköpslistan")
+
+
+# ─── Tibber Pulse – Matlagningssession ───────────────────────────────────────
+
+@service
+async def grocery_start_cooking():
+    """Starta matlagningssession – läs av Tibber Pulse accumulated_consumption som startpunkt."""
+    try:
+        pulse_val = float(_sget(TIBBER_PULSE_CONSUMPTION, 0))
+    except (ValueError, TypeError):
+        pulse_val = 0
+
+    input_number.set_value(entity_id="input_number.grocery_cooking_kwh_start", value=pulse_val)
+    input_number.set_value(entity_id="input_number.grocery_actual_cooking_kwh", value=0)
+    input_number.set_value(entity_id="input_number.grocery_actual_cooking_cost", value=0)
+    input_boolean.turn_on(entity_id="input_boolean.grocery_cooking_active")
+
+    persistent_notification.create(
+        title="🍳 Matlagningssession startad",
+        message=(
+            f"Tibber Pulse-mätning startad (start: {pulse_val:.3f} kWh). "
+            f"Tryck 'Klar' när du är färdig med matlagningen."
+        ),
+        notification_id="grocery_cooking_session",
+    )
+    log.info(f"[GroceryTracker] Matlagningssession startad. Tibber Pulse start: {pulse_val:.3f} kWh")
+
+
+@service
+async def grocery_stop_cooking():
+    """Avsluta matlagningssession – beräkna faktisk förbrukning via Tibber Pulse."""
+    input_boolean.turn_off(entity_id="input_boolean.grocery_cooking_active")
+
+    try:
+        kwh_end   = float(_sget(TIBBER_PULSE_CONSUMPTION, 0))
+        kwh_start = float(_sget("input_number.grocery_cooking_kwh_start", 0))
+    except (ValueError, TypeError):
+        kwh_end = kwh_start = 0
+
+    delta = round(kwh_end - kwh_start, 3)
+
+    # Hantera midnatt-återstart (accumulated_consumption nollställs vid 00:00)
+    if delta < 0:
+        persistent_notification.create(
+            title="⚠️ Matlagning – midnatt passerades",
+            message=(
+                "Sessionen passerade midnatt och Tibber Pulse nollställdes. "
+                "Förbrukningen kan inte beräknas exakt för denna session."
+            ),
+            notification_id="grocery_cooking_session",
+        )
+        log.warning("[GroceryTracker] Matlagningssession: delta < 0 (midnatt), avbryter mätning")
+        return
+
+    try:
+        _price = float(_sget("sensor.dammtorpsgatan_22_current_electricity_price", 0))
+    except (ValueError, TypeError):
+        _price = 0
+
+    actual_cost = round(delta * _price, 2)
+    input_number.set_value(entity_id="input_number.grocery_actual_cooking_kwh", value=delta)
+    input_number.set_value(entity_id="input_number.grocery_actual_cooking_cost", value=actual_cost)
+
+    persistent_notification.create(
+        title="✅ Matlagning klar!",
+        message=(
+            f"Förbrukning: {delta} kWh · Kostnad: {actual_cost} kr "
+            f"(elpris {_price:.2f} kr/kWh)\n"
+            f"Obs: inkluderar ALL förbrukning i hemmet under matlagningen."
+        ),
+        notification_id="grocery_cooking_session",
+    )
+    log.info(
+        f"[GroceryTracker] Matlagningssession klar. "
+        f"Delta: {delta} kWh, Kostnad: {actual_cost} kr (elpris {_price:.2f} kr/kWh)"
+    )
 
 
 # ─── Startup ─────────────────────────────────────────────────────────────────
@@ -714,4 +1041,15 @@ async def grocery_suggest_recipes():
 async def _startup():
     inventory = await _load_inventory()
     await _refresh_sensors(inventory)
-    log.info("[GroceryTracker] Grocery Tracker v1.6 startad.")
+    # Initiera recept-sensor (pyscript-states är transient – finns aldrig vid omstart)
+    state.set("sensor.grocery_last_recipe", "Inget receptförslag ännu", {
+        "recipe": "",
+        "ingredients": "",
+        "cooking_minutes": None,
+        "cooking_appliance": None,
+        "cooking_kwh": None,
+        "cooking_cost_kr": None,
+        "electricity_price": None,
+        "friendly_name": "Senaste receptförslag",
+    })
+    log.info("[GroceryTracker] Grocery Tracker v1.9 startad.")
