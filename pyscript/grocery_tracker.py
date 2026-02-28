@@ -545,6 +545,7 @@ async def _daily_expiry_check():
     notify.notify(
         title="🍽️ Kylskåpsrapporten",
         message="\n".join(lines),
+        data={"url": "/grocery-dashboard/inkopslista"},
     )
     log.info(f"[GroceryTracker] Daglig koll: {len(expiring)} snart utgångna, {len(expired)} utgångna")
 
