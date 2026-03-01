@@ -661,7 +661,7 @@ async def _do_suggest_recipes(candidates, provider_override=None):
         log.info(f"[GroceryTracker] Receptförslag sparat och skickat för: {ingredients}")
 
 
-# Leverantör → input_text-entity för API-nyckel (per leverantör)
+# Leverantör → input_text-entity för API-nyckel (per leverantör, egna Grocery-nycklar)
 _PROVIDER_KEY_ENTITY = {
     "groq":       "input_text.grocery_api_key_groq",
     "gemini":     "input_text.grocery_api_key_gemini",
@@ -671,14 +671,35 @@ _PROVIDER_KEY_ENTITY = {
     "anthropic":  "input_text.grocery_api_key_anthropic",
 }
 
+# AI Hub-nycklar (prioriteras framför egna Grocery-nycklar)
+_AI_HUB_KEY_ENTITY = {
+    "groq":      "input_text.ai_hub_groq_key",
+    "anthropic": "input_text.ai_hub_anthropic_key",
+    "openai":    "input_text.ai_hub_openai_key",
+}
+
+
+def _resolve_grocery_key(provider):
+    """
+    Hämtar API-nyckel för provider.
+    Prioritet: AI Hub → egna Grocery-nycklar
+    """
+    hub_entity = _AI_HUB_KEY_ENTITY.get(provider)
+    if hub_entity:
+        hub_key = _sget(hub_entity, "")
+        if hub_key and hub_key not in ("", "unknown", "none", "unavailable"):
+            return hub_key
+    own_entity = _PROVIDER_KEY_ENTITY.get(provider)
+    return _sget(own_entity, "") if own_entity else ""
+
 
 async def _call_recipe_llm(prompt, provider_override=None):
     """Anropa konfigurerad LLM-leverantör. Faller tillbaka på ha_ai_task om API-nyckel saknas."""
     provider = provider_override or _sget("input_select.grocery_recipe_provider", "disabled")
 
-    # Läs leverantörsspecifik API-nyckel
+    # Läs nyckel – AI Hub har prioritet, sedan egna Grocery-nycklar
     key_entity = _PROVIDER_KEY_ENTITY.get(provider)
-    api_key = _sget(key_entity, "") if key_entity else ""
+    api_key = _resolve_grocery_key(provider) if key_entity else ""
 
     # Auto-fallback: om nyckel saknas för en leverantör som kräver det → ha_ai_task
     if key_entity and not api_key:
