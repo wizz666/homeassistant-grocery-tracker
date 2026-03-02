@@ -1231,7 +1231,329 @@ views:
 
 
   # ═══════════════════════════════════════════════════════════════════
-  # TAB 5: SVINNDAGBOK — Teal identitet  🩵
+  # TAB 5: ERBJUDANDEN — Orange identitet  🟠  (Matpriskollen)
+  # ═══════════════════════════════════════════════════════════════════
+  - title: Erbjudanden
+    path: erbjudanden
+    icon: mdi:tag-multiple-outline
+    cards:
+
+      # ── Header ────────────────────────────────────────────────────
+      - type: custom:button-card
+        name: "Erbjudanden"
+        label: Veckans reas från dina butiker · Matpriskollen
+        show_label: true
+        show_icon: true
+        icon: mdi:tag-multiple
+        tap_action:
+          action: none
+        extra_styles: |
+          @keyframes hdr-orange {
+            0%   { background-position: 0% 50%; }
+            50%  { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+          }
+        styles:
+          card:
+            - background: "linear-gradient(-45deg, #e65100, #ef6c00, #f57c00, #fb8c00)"
+            - background-size: "300% 300%"
+            - animation: "hdr-orange 10s ease infinite"
+            - border-radius: 20px
+            - padding: "20px 24px"
+            - box-shadow: "0 8px 32px rgba(230, 81, 0, 0.45)"
+          grid:
+            - grid-template-areas: '"i n" "i l"'
+            - grid-template-rows: "min-content min-content"
+            - grid-template-columns: "min-content 1fr"
+          icon:
+            - color: "rgba(255,255,255,0.95)"
+            - width: 40px
+          name:
+            - font-size: 22px
+            - font-weight: 800
+            - color: white
+            - text-align: left
+            - letter-spacing: "0.3px"
+          label:
+            - font-size: 12px
+            - color: "rgba(255,255,255,0.70)"
+            - text-align: left
+            - margin-top: 4px
+
+      # ── Statistikrad: Totalt erbjudanden + Matchar inköpslista ────
+      - type: grid
+        columns: 2
+        square: false
+        cards:
+
+          - type: custom:button-card
+            entity: sensor.grocery_offers_count
+            show_name: false
+            show_icon: false
+            show_state: false
+            tap_action:
+              action: none
+            custom_fields:
+              body: |
+                [[[
+                  const v = entity ? entity.state : '–';
+                  return `<div style="text-align:center;padding:14px 8px 12px;">
+                    <div style="font-size:11px;color:rgba(230,81,0,0.60);margin-bottom:4px;">🏷️</div>
+                    <div style="font-size:36px;font-weight:900;color:#e65100;line-height:1;">${v}</div>
+                    <div style="font-size:11px;color:rgba(0,0,0,0.45);margin-top:6px;">erbjudanden</div>
+                  </div>`;
+                ]]]
+            styles:
+              card:
+                - border-radius: 16px
+                - background: "rgba(251,140,0,0.08)"
+                - border: "1px solid rgba(251,140,0,0.18)"
+                - padding: 0
+              custom_fields:
+                body:
+                  - width: 100%
+
+          - type: custom:button-card
+            entity: sensor.grocery_offers_matches
+            show_name: false
+            show_icon: false
+            show_state: false
+            tap_action:
+              action: none
+            custom_fields:
+              body: |
+                [[[
+                  const v = entity ? entity.state : '–';
+                  return `<div style="text-align:center;padding:14px 8px 12px;">
+                    <div style="font-size:11px;color:rgba(230,81,0,0.60);margin-bottom:4px;">✅</div>
+                    <div style="font-size:36px;font-weight:900;color:#e65100;line-height:1;">${v}</div>
+                    <div style="font-size:11px;color:rgba(0,0,0,0.45);margin-top:6px;">matchar listan</div>
+                  </div>`;
+                ]]]
+            styles:
+              card:
+                - border-radius: 16px
+                - background: "rgba(251,140,0,0.08)"
+                - border: "1px solid rgba(251,140,0,0.18)"
+                - padding: 0
+              custom_fields:
+                body:
+                  - width: 100%
+
+      # ── Knappar: Uppdatera ────────────────────────────────────────
+      - type: button
+        name: Uppdatera erbjudanden
+        icon: mdi:tag-refresh-outline
+        tap_action:
+          action: call-service
+          service: script.grocery_refresh_offers_btn
+        card_mod:
+          style: |
+            ha-card { border-radius: 14px; background: rgba(251,140,0,0.10); }
+
+      # ── Varor på rea (matchar inköpslistan) ───────────────────────
+      - type: conditional
+        conditions:
+          - condition: numeric_state
+            entity: sensor.grocery_offers_matches
+            above: 0
+        card:
+          type: custom:button-card
+          show_name: false
+          show_icon: false
+          show_state: false
+          tap_action:
+            action: none
+          custom_fields:
+            body: |
+              [[[
+                const matches = entity
+                  ? (entity.attributes.matched_items || [])
+                  : [];
+                if (!matches.length) return '<div style="padding:12px;color:#666;">Ingen matchning</div>';
+                const rows = matches.slice(0,8).map(m => {
+                  const o = m.offers[0];
+                  return `<tr>
+                    <td style="padding:6px 8px;font-weight:600;color:#333;">${m.item}</td>
+                    <td style="padding:6px 8px;color:#555;">${o.product}${o.brand ? ' ('+o.brand+')' : ''}</td>
+                    <td style="padding:6px 8px;font-weight:700;color:#e65100;">${o.price}</td>
+                    <td style="padding:6px 8px;font-size:11px;color:#888;">${o.store_name}</td>
+                  </tr>`;
+                }).join('');
+                return `<div style="padding:12px 4px 4px;">
+                  <div style="font-size:13px;font-weight:700;color:#e65100;padding:0 8px 8px;">
+                    🛒 Varor på inköpslistan som är på rea
+                  </div>
+                  <table style="width:100%;border-collapse:collapse;font-size:13px;">
+                    <thead><tr style="border-bottom:1px solid rgba(0,0,0,0.08);">
+                      <th style="padding:4px 8px;text-align:left;font-size:11px;color:#999;">Din vara</th>
+                      <th style="padding:4px 8px;text-align:left;font-size:11px;color:#999;">Produkt</th>
+                      <th style="padding:4px 8px;text-align:left;font-size:11px;color:#999;">Pris</th>
+                      <th style="padding:4px 8px;text-align:left;font-size:11px;color:#999;">Butik</th>
+                    </tr></thead>
+                    <tbody>${rows}</tbody>
+                  </table>
+                </div>`;
+              ]]]
+          styles:
+            card:
+              - border-radius: 16px
+              - background: "rgba(251,140,0,0.06)"
+              - border: "1px solid rgba(251,140,0,0.20)"
+              - padding: 0
+            custom_fields:
+              body:
+                - width: 100%
+
+      # ── Konfigurerade butiker – status ─────────────────────────────
+      - type: custom:button-card
+        show_name: false
+        show_icon: false
+        show_state: false
+        entity: sensor.grocery_offers_count
+        tap_action:
+          action: none
+        custom_fields:
+          body: |
+            [[[
+              const stores = entity.attributes.stores || [];
+              const lastUpdate = entity.attributes.last_update || '–';
+              if (!stores.length) {
+                return `<div style="padding:16px;text-align:center;color:#999;font-size:13px;">
+                  Inga butiker konfigurerade ännu.<br>
+                  Lägg till UUID under Inställningar nedan.
+                </div>`;
+              }
+              const rows = stores.map(s =>
+                `<div style="display:flex;justify-content:space-between;align-items:center;
+                            padding:8px 12px;border-bottom:1px solid rgba(0,0,0,0.05);">
+                  <div>
+                    <div style="font-weight:600;color:#333;font-size:13px;">${s.name}</div>
+                    <div style="font-size:11px;color:#999;">${s.uuid ? s.uuid.substring(0,8)+'...' : ''}</div>
+                  </div>
+                  <div style="font-weight:700;color:#e65100;font-size:18px;">${s.offer_count}</div>
+                </div>`
+              ).join('');
+              return `<div style="padding:8px 0 4px;">
+                <div style="font-size:12px;color:#999;padding:0 12px 8px;">Senast uppdaterad: ${lastUpdate}</div>
+                ${rows}
+              </div>`;
+            ]]]
+        styles:
+          card:
+            - border-radius: 16px
+            - border: "1px solid rgba(0,0,0,0.08)"
+            - padding: 0
+          custom_fields:
+            body:
+              - width: 100%
+
+      # ── Butikssök ─────────────────────────────────────────────────
+      - type: entities
+        entities:
+          - entity: input_text.grocery_store_search_query
+            name: "Sök butik (namn / ort)"
+        card_mod:
+          style: |
+            ha-card { border-radius: 14px; }
+
+      - type: grid
+        columns: 2
+        square: false
+        cards:
+          - type: button
+            name: "Sök"
+            icon: mdi:magnify
+            tap_action:
+              action: call-service
+              service: script.grocery_search_stores_btn
+            card_mod:
+              style: |
+                ha-card { border-radius: 14px; background: rgba(251,140,0,0.12); }
+          - type: button
+            name: "Nära mig"
+            icon: mdi:map-marker-radius
+            tap_action:
+              action: call-service
+              service: script.grocery_find_stores_home_btn
+            card_mod:
+              style: |
+                ha-card { border-radius: 14px; background: rgba(251,140,0,0.08); }
+
+      # ── Hittade butiker – picker ───────────────────────────────────
+      - type: conditional
+        conditions:
+          - condition: state
+            entity: input_select.grocery_store_picker
+            state_not: "– Sök butiker ovan –"
+        card:
+          type: custom:vertical-stack-in-card
+          card_mod:
+            style: |
+              ha-card { border-radius: 16px !important; overflow: hidden;
+                        border: 1px solid rgba(251,140,0,0.30); }
+          cards:
+            - type: custom:mushroom-select-card
+              entity: input_select.grocery_store_picker
+              name: "Välj butik att lägga till"
+              icon: mdi:store-search-outline
+              card_mod:
+                style: |
+                  ha-card { border-radius: 0 !important; }
+            - type: button
+              name: "Lägg till vald butik"
+              icon: mdi:store-plus-outline
+              tap_action:
+                action: call-service
+                service: script.grocery_add_selected_store_btn
+              card_mod:
+                style: |
+                  ha-card { border-radius: 0 !important;
+                            background: linear-gradient(135deg,#e65100,#fb8c00); }
+
+      # ── Konfigurerade butiker – ta bort ────────────────────────────
+      - type: conditional
+        conditions:
+          - condition: state
+            entity: input_select.grocery_configured_picker
+            state_not: "– Inga butiker konfigurerade –"
+        card:
+          type: custom:vertical-stack-in-card
+          card_mod:
+            style: |
+              ha-card { border-radius: 16px !important; overflow: hidden;
+                        border: 1px solid rgba(211,47,47,0.25); }
+          cards:
+            - type: custom:mushroom-select-card
+              entity: input_select.grocery_configured_picker
+              name: "Välj butik att ta bort"
+              icon: mdi:store-remove-outline
+              card_mod:
+                style: |
+                  ha-card { border-radius: 0 !important; }
+            - type: button
+              name: "Ta bort vald butik"
+              icon: mdi:store-remove-outline
+              tap_action:
+                action: call-service
+                service: script.grocery_remove_selected_store_btn
+              card_mod:
+                style: |
+                  ha-card { border-radius: 0 !important;
+                            background: rgba(211,47,47,0.85); }
+
+      # ── Aktivera/inaktivera ─────────────────────────────────────────
+      - type: entities
+        title: "Inställningar"
+        entities:
+          - entity: input_boolean.grocery_offers_enabled
+            name: Aktivera erbjudanden
+        card_mod:
+          style: |
+            ha-card { border-radius: 14px; border-left: 4px solid #fb8c00; }
+
+  # ═══════════════════════════════════════════════════════════════════
+  # TAB 6: SVINNDAGBOK — Teal identitet  🩵
   # ═══════════════════════════════════════════════════════════════════
   - title: Svinndagbok
     path: svinndagbok

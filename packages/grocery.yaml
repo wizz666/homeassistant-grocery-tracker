@@ -56,6 +56,40 @@ script:
     sequence:
       - service: pyscript.grocery_stop_cooking
 
+  grocery_refresh_offers_btn:
+    alias: "Grocery – Uppdatera erbjudanden"
+    icon: mdi:tag-refresh-outline
+    sequence:
+      - service: pyscript.grocery_refresh_offers
+
+  grocery_find_stores_home_btn:
+    alias: "Grocery – Sök butiker nära hemmet"
+    icon: mdi:store-search-outline
+    sequence:
+      - service: pyscript.grocery_find_stores
+        data:
+          lat: "{{ state_attr('zone.home', 'latitude') | float }}"
+          lon: "{{ state_attr('zone.home', 'longitude') | float }}"
+          radius: 25
+
+  grocery_search_stores_btn:
+    alias: "Grocery – Sök butiker (från sökfält)"
+    icon: mdi:magnify
+    sequence:
+      - service: pyscript.grocery_search_stores
+
+  grocery_add_selected_store_btn:
+    alias: "Grocery – Lägg till vald butik"
+    icon: mdi:store-plus-outline
+    sequence:
+      - service: pyscript.grocery_add_selected_store
+
+  grocery_remove_selected_store_btn:
+    alias: "Grocery – Ta bort vald butik"
+    icon: mdi:store-remove-outline
+    sequence:
+      - service: pyscript.grocery_remove_selected_store
+
 # ── Receptförslag – konfiguration ────────────────────────────────────────────
 # GRATIS (ingen kreditkort):
 #   groq       – Llama 3.3 70B    – console.groq.com
@@ -67,6 +101,22 @@ script:
 #   openai     – GPT-4o Mini      – platform.openai.com
 #   anthropic  – Claude Haiku     – console.anthropic.com
 input_select:
+
+  # ── Erbjudanden – butikspickar (populeras dynamiskt av pyscript) ───────────
+  grocery_store_picker:
+    name: "Välj butik att lägga till"
+    icon: mdi:store-plus-outline
+    options:
+      - "– Sök butiker ovan –"
+    initial: "– Sök butiker ovan –"
+
+  grocery_configured_picker:
+    name: "Välj butik att ta bort"
+    icon: mdi:store-remove-outline
+    options:
+      - "– Inga butiker konfigurerade –"
+    initial: "– Inga butiker konfigurerade –"
+
   grocery_recipe_provider:
     name: "Receptförslag – AI-leverantör"
     options:
@@ -116,6 +166,19 @@ input_text:
     mode: password
     max: 200
     icon: mdi:key
+
+  # ── Erbjudanden – butikskonfiguration ───────────────────────────────────────
+  grocery_store_uuids:
+    name: "Mina butiker – UUID (kommaseparerade, hanteras via UI)"
+    icon: mdi:store-multiple-outline
+    max: 255
+    initial: ""
+
+  grocery_store_search_query:
+    name: "Sök butik på matpriskollen"
+    icon: mdi:magnify
+    max: 100
+    initial: ""
 
   # ── USB-scanner helper ──────────────────────────────────────────────────────
   # USB-streckkodsläsare skriver streckkod + Enter i detta fält.
@@ -192,6 +255,10 @@ input_boolean:
   grocery_cooking_active:
     name: "Matlagning – Session aktiv"
     icon: mdi:pot-steam
+
+  grocery_offers_enabled:
+    name: "Butiksernas erbjudanden – aktiverad"
+    icon: mdi:tag-multiple-outline
 
 # ── Automationer ──────────────────────────────────────────────────────────────
 automation:
