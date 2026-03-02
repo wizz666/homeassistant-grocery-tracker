@@ -168,6 +168,12 @@ input_text:
     max: 255
     initial: ""
 
+  grocery_view_store:
+    name: "Erbjudanden – vald butik"
+    icon: mdi:store-eye-outline
+    max: 100
+    initial: ""
+
   # ── USB-scanner helper ──────────────────────────────────────────────────────
   # USB-streckkodsläsare skriver streckkod + Enter i detta fält.
   grocery_usb_barcode:
