@@ -160,7 +160,7 @@ def _match_item_to_offers(item_name, all_offers):
 def _update_count_sensor():
     """Uppdatera sensor.grocery_offers_count och grocery_configured_picker."""
     from datetime import datetime
-    total = sum(len(v.get("offers", [])) for v in _offers_cache.values())
+    total = sum([len(v.get("offers", [])) for v in _offers_cache.values()])
     stores_summary = [
         {
             "uuid":        uuid,
@@ -293,7 +293,7 @@ async def _do_refresh():
             notification_id="grocery_offers_match",
         )
 
-    total = sum(len(v.get("offers", [])) for v in _offers_cache.values())
+    total = sum([len(v.get("offers", [])) for v in _offers_cache.values()])
     log.info(f"[GroceryOffers] Klar. {total} erbjudanden totalt, {len(matched)} matchar inköpslistan.")
 
 # ─── Services ─────────────────────────────────────────────────────────────────
