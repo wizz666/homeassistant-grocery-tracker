@@ -1459,7 +1459,7 @@ views:
           style: |
             ha-card { border-radius: 14px; background: rgba(251,140,0,0.10); }
 
-      # ── Hittade butiker – picker ───────────────────────────────────
+      # ── Hittade butiker – picker + Lägg till ─────────────────────
       - type: conditional
         conditions:
           - condition: state
@@ -1472,13 +1472,13 @@ views:
               ha-card { border-radius: 16px !important; overflow: hidden;
                         border: 1px solid rgba(251,140,0,0.30); }
           cards:
-            - type: custom:mushroom-select-card
-              entity: input_select.grocery_store_picker
-              name: "Välj butik att lägga till"
-              icon: mdi:store-search-outline
+            - type: entities
+              entities:
+                - entity: input_select.grocery_store_picker
+                  name: "Välj butik att lägga till"
               card_mod:
                 style: |
-                  ha-card { border-radius: 0 !important; }
+                  ha-card { border-radius: 0 !important; border-bottom: none; }
             - type: button
               name: "Lägg till vald butik"
               icon: mdi:store-plus-outline
@@ -1503,13 +1503,13 @@ views:
               ha-card { border-radius: 16px !important; overflow: hidden;
                         border: 1px solid rgba(211,47,47,0.25); }
           cards:
-            - type: custom:mushroom-select-card
-              entity: input_select.grocery_configured_picker
-              name: "Välj butik att ta bort"
-              icon: mdi:store-remove-outline
+            - type: entities
+              entities:
+                - entity: input_select.grocery_configured_picker
+                  name: "Välj butik att ta bort"
               card_mod:
                 style: |
-                  ha-card { border-radius: 0 !important; }
+                  ha-card { border-radius: 0 !important; border-bottom: none; }
             - type: button
               name: "Ta bort vald butik"
               icon: mdi:store-remove-outline
