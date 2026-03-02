@@ -1448,37 +1448,16 @@ views:
             body:
               - width: 100%
 
-      # ── Butikssök ─────────────────────────────────────────────────
-      - type: entities
-        entities:
-          - entity: input_text.grocery_store_search_query
-            name: "Sök butik (namn / ort)"
+      # ── Butikssök – Nära mig ──────────────────────────────────────
+      - type: button
+        name: "Hitta butiker nära mig"
+        icon: mdi:map-marker-radius
+        tap_action:
+          action: call-service
+          service: script.grocery_find_stores_home_btn
         card_mod:
           style: |
-            ha-card { border-radius: 14px; }
-
-      - type: grid
-        columns: 2
-        square: false
-        cards:
-          - type: button
-            name: "Sök"
-            icon: mdi:magnify
-            tap_action:
-              action: call-service
-              service: script.grocery_search_stores_btn
-            card_mod:
-              style: |
-                ha-card { border-radius: 14px; background: rgba(251,140,0,0.12); }
-          - type: button
-            name: "Nära mig"
-            icon: mdi:map-marker-radius
-            tap_action:
-              action: call-service
-              service: script.grocery_find_stores_home_btn
-            card_mod:
-              style: |
-                ha-card { border-radius: 14px; background: rgba(251,140,0,0.08); }
+            ha-card { border-radius: 14px; background: rgba(251,140,0,0.10); }
 
       # ── Hittade butiker – picker ───────────────────────────────────
       - type: conditional

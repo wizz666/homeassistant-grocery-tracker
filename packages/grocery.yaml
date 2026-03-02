@@ -72,12 +72,6 @@ script:
           lon: "{{ state_attr('zone.home', 'longitude') | float }}"
           radius: 25
 
-  grocery_search_stores_btn:
-    alias: "Grocery – Sök butiker (från sökfält)"
-    icon: mdi:magnify
-    sequence:
-      - service: pyscript.grocery_search_stores
-
   grocery_add_selected_store_btn:
     alias: "Grocery – Lägg till vald butik"
     icon: mdi:store-plus-outline
@@ -172,12 +166,6 @@ input_text:
     name: "Mina butiker – UUID (kommaseparerade, hanteras via UI)"
     icon: mdi:store-multiple-outline
     max: 255
-    initial: ""
-
-  grocery_store_search_query:
-    name: "Sök butik på matpriskollen"
-    icon: mdi:magnify
-    max: 100
     initial: ""
 
   # ── USB-scanner helper ──────────────────────────────────────────────────────
