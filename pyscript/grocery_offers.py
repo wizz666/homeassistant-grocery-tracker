@@ -22,8 +22,10 @@ Hur du hittar en butiks UUID:
 """
 
 import json
+import pathlib
 
 OFFERS_API = "https://matpriskollen.se/api/v1/stores"
+SHOPPING_LIST_FILE = "/config/.shopping_list.json"
 
 # Modul-nivå cache: uuid → {name, chain, offers: [...], fetched_at}
 _offers_cache = {}
@@ -102,45 +104,120 @@ def _normalize(text):
     import unicodedata
     text = str(text).lower().strip()
     text = unicodedata.normalize("NFD", text)
-    return "".join(c for c in text if unicodedata.category(c) != "Mn")
+    return "".join([c for c in text if unicodedata.category(c) != "Mn"])
 
 
 async def _get_shopping_list_items():
-    """Läs aktiva items från inköpslistan."""
-    import pathlib
+    """Läs aktiva items från inköpslistan (samma mönster som grocery_tracker.py)."""
     try:
-        path = pathlib.Path("/config/.shopping_list.json")
-        if not path.exists():
-            return []
-        content = await task.executor(path.read_text, encoding="utf-8")
-        data = json.loads(content)
-        return [item for item in data if not item.get("complete", False)]
+        text = await task.executor(
+            pathlib.Path(SHOPPING_LIST_FILE).read_text, encoding="utf-8"
+        )
+        items = json.loads(text)
+        result = [i for i in items if not i.get("complete", False)]
+        log.debug(f"[GroceryOffers] Inköpslista: {len(result)} aktiva items")
+        return result
     except Exception as e:
         log.warning(f"[GroceryOffers] Kunde inte läsa inköpslista: {e}")
         return []
 
 
+def _extract_keywords(text):
+    """Extrahera sökbara nyckelord ur ett varunamn (min 3 tecken, ej siffror)."""
+    norm = _normalize(text)
+    words = []
+    current = ""
+    for c in norm:
+        if c.isalnum():
+            current += c
+        else:
+            if current and len(current) >= 3 and not current.isdigit():
+                words.append(current)
+            current = ""
+    if current and len(current) >= 3 and not current.isdigit():
+        words.append(current)
+    return words
+
+
+# Generiska svenska adjektiv/deskriptorer — filtreras bort, de är för otydliga
+_SKIP_WORDS = {
+    "farsk", "fryst", "torkat", "rokt", "grillad", "kokt", "stekt", "malet",
+    "skivat", "hel", "halv", "krossad", "passerad", "eko", "krav", "svensk",
+    "god", "stor", "liten", "smak",
+}
+
+# Prefix i sammansatta ord som fundamentalt ändrar produkttypen — suffix-match
+# avvisas om produktordet börjar med något av dessa:
+#   Djurfoder:          kattmjolk ≠ mjolk,  hundfoder ≠ foder
+#   Växtbaserat:        kokosmjolk ≠ mjolk, havremjolk ≠ mjolk
+_COMPOUND_TYPE_PREFIXES = {
+    # Djur
+    "katt", "hund", "kanin", "hamster", "fagel", "papegoj", "marsvin",
+    # Växtbaserade mjölkalternativ
+    "kokos", "mandel", "havre", "soja", "ris", "cashew",
+}
+
+# Fristående ord som fundamentalt ändrar produkttypen:
+# om dessa finns i produktnamnet men EJ bland inköpslistans nyckelord → avvisa.
+# Exempel: "Mjölk" på listan ska EJ matcha "Kondenserad Mjölk" (konserv, ej dryck).
+_STANDALONE_DISQUALIFIERS = {
+    "kondenserad", "evaporerad",
+}
+
+
 def _match_item_to_offers(item_name, all_offers):
-    """Hitta erbjudanden som matchar ett inköpslista-item (fuzzy)."""
-    norm_item = _normalize(item_name)
-    if not norm_item or len(norm_item) < 3:
+    """Hitta erbjudanden som matchar ett inköpslista-item.
+
+    - Filtrerar generiska deskriptorer (farsk, fryst, eko…) ur nyckelorden
+    - Krav: ALLA återstående nyckelord måste matchas (AND-logik)
+    - Varje nyckelord matchas som exakt ord, prefix ELLER suffix i ett sökt ord
+      (hanterar svenska sammansatta ord: babyspenat↔spenat, hönsägg↔ägg)
+    """
+    all_kw = _extract_keywords(item_name)
+    if not all_kw:
         return []
+    # Ta bort generiska deskriptorer om det finns mer specifika kvar
+    filtered = [kw for kw in all_kw if kw not in _SKIP_WORDS]
+    keywords = filtered if filtered else all_kw
 
     matches = []
     for offer in all_offers:
-        prod      = offer.get("product", {})
-        prod_name = _normalize(prod.get("name", ""))
-        brand     = _normalize(prod.get("brand", ""))
-        art_match = _normalize(offer.get("article_matches", ""))
+        prod       = offer.get("product", {})
+        prod_name  = _normalize(prod.get("name", ""))
+        brand      = _normalize(prod.get("brand", ""))
+        # Extrahera ord ur produktnamn + varumärke (hanterar sammansatta ord)
+        search_words = _extract_keywords(prod_name + " " + brand)
 
-        # Kontrollera om item matchar produktnamn, varumärke eller article_matches
-        hit = (
-            norm_item in prod_name
-            or prod_name in norm_item
-            or (brand and len(brand) > 2 and norm_item in brand)
-            or (art_match and norm_item in art_match)
-        )
-        if hit:
+        # AND-logik: alla nyckelord måste hittas som exakt/prefix/suffix
+        all_match = True
+        for kw in keywords:
+            found = False
+            for sw in search_words:
+                if sw == kw or sw.startswith(kw):
+                    found = True
+                    break
+                # Suffix-match: babyspenat↔spenat — men EJ om prefixet ändrar typ
+                # (kattmjolk→"katt", kokosmjolk→"kokos" ∈ _COMPOUND_TYPE_PREFIXES → avvisa)
+                if sw.endswith(kw) and len(sw) > len(kw):
+                    prefix = sw[:-len(kw)]
+                    if prefix not in _COMPOUND_TYPE_PREFIXES:
+                        found = True
+                        break
+            if not found:
+                all_match = False
+                break
+
+        # Extra: fristående typändrande ord i produktnamnet men EJ i listans nyckelord
+        # "Mjölk" → keywords={"mjolk"} — produkt "Kondenserad Mjölk" har "kondenserad"
+        # som inte finns bland keywords → avvisa (det är konserv, inte dryck)
+        if all_match:
+            kw_set = set(keywords)
+            for dq in _STANDALONE_DISQUALIFIERS:
+                if dq in search_words and dq not in kw_set:
+                    all_match = False
+                    break
+
+        if all_match:
             cats = prod.get("categories", [])
             cat  = cats[0].get("name", "") if cats else ""
             matches.append({
@@ -154,6 +231,57 @@ def _match_item_to_offers(item_name, all_offers):
                 "image":      (offer.get("produkt_bild_urls") or {}).get("thumbnailUrl", ""),
             })
     return matches
+
+
+def _build_per_store_data():
+    """Bygg per-butik offerdata för butiksvy i dashboarden."""
+    result = {}
+    for uuid, cache_entry in _offers_cache.items():
+        store_name = cache_entry.get("name", uuid[:8])
+        offers_data = []
+        for o in cache_entry.get("offers", []):
+            prod = o.get("product", {})
+            cats = prod.get("categories", [])
+            if cats:
+                parent = cats[0].get("parent_category") or {}
+                cat_name = parent.get("name") or cats[0].get("name") or "Övrigt"
+            else:
+                cat_name = "Övrigt"
+            offers_data.append({
+                "n": prod.get("name", ""),
+                "b": prod.get("brand", ""),
+                "p": o.get("price", ""),
+                "c": cat_name,
+            })
+        result[store_name] = offers_data
+    return result
+
+
+def _build_category_data():
+    """Bygg kategoriserad offerdata från cache (för sensor-attribut)."""
+    cat_map = {}
+    for uuid, cache_entry in _offers_cache.items():
+        store_name = cache_entry.get("name", "?")
+        for offer in cache_entry.get("offers", []):
+            prod = offer.get("product", {})
+            cats = prod.get("categories", [])
+            if cats:
+                parent = cats[0].get("parent_category") or {}
+                cat_name = parent.get("name") or cats[0].get("name") or "Övrigt"
+            else:
+                cat_name = "Övrigt"
+            if cat_name not in cat_map:
+                cat_map[cat_name] = []
+            cat_map[cat_name].append({
+                "n": prod.get("name", ""),
+                "b": prod.get("brand", ""),
+                "p": offer.get("price", ""),
+                "s": store_name,
+            })
+    result = []
+    for name, offers in sorted(cat_map.items(), key=lambda x: -len(x[1])):
+        result.append({"name": name, "count": len(offers), "offers": offers[:5]})
+    return result[:12]
 
 # ─── Uppdatera sensorer ───────────────────────────────────────────────────────
 
@@ -181,18 +309,22 @@ def _update_count_sensor():
         "store_count":   len(stores_summary),
         "last_update":   datetime.now().strftime("%Y-%m-%d %H:%M"),
         "name_to_uuid":  name_to_uuid,
+        "categories":        _build_category_data(),
+        "per_store_offers":  _build_per_store_data(),
     })
 
     # Uppdatera dropdown för remove
+    # Notera: placeholder ingår alltid i options-listan för att undvika "no longer valid"-varningar.
     if stores_summary:
-        options = [f"{s['name']} ({s['offer_count']} reas)" for s in stores_summary]
+        store_options = [f"{s['name']} ({s['offer_count']} reas)" for s in stores_summary]
+        all_options = ["– Inga butiker konfigurerade –"] + store_options
         input_select.set_options(
             entity_id="input_select.grocery_configured_picker",
-            options=options,
+            options=all_options,
         )
         input_select.select_option(
             entity_id="input_select.grocery_configured_picker",
-            option=options[0],
+            option=store_options[0],
         )
     else:
         input_select.set_options(
@@ -382,9 +514,11 @@ async def grocery_find_stores(lat=None, lon=None, radius=25, search=None):
                 dist   = f" · {float(s['distance_m']):.1f} km" if s["distance_m"] else ""
                 added  = " ✓" if s["uuid"] in already else ""
                 options.append(f"{s['name']} ({s['offer_count']} reas{dist}){added}")
+            # Behåll placeholder som option 0 — undviker "no longer valid"-varningar
+            all_picker_options = ["– Sök butiker ovan –"] + options
             input_select.set_options(
                 entity_id="input_select.grocery_store_picker",
-                options=options,
+                options=all_picker_options,
             )
             input_select.select_option(
                 entity_id="input_select.grocery_store_picker",
@@ -576,3 +710,33 @@ async def _startup():
 
     if _sbool("input_boolean.grocery_offers_enabled") and _get_configured_uuids():
         await _do_refresh()
+
+
+# ─── Butiksvy – sätts från dashboard ─────────────────────────────────────────
+
+@service
+async def grocery_view_store(store_index=0):
+    """Aktivera butiksvy för vald butik i Erbjudanden-dashboarden.
+
+    Args:
+        store_index: Index i listan (0 = första butiken, -1 = rensa vyn)
+    """
+    stores = list(_offers_cache.items())
+    try:
+        idx = int(store_index)
+    except (ValueError, TypeError):
+        idx = -1
+
+    if 0 <= idx < len(stores):
+        uuid, cache_entry = stores[idx]
+        store_name = cache_entry.get("name", uuid[:8])
+        input_text.set_value(
+            entity_id="input_text.grocery_view_store",
+            value=store_name,
+        )
+        log.debug(f"[GroceryOffers] Butiksvy: {store_name}")
+    else:
+        input_text.set_value(
+            entity_id="input_text.grocery_view_store",
+            value="",
+        )

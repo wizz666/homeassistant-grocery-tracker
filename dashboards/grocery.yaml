@@ -359,6 +359,55 @@ views:
             - text-align: left
             - margin-top: 4px
 
+      # ── Erbjudandematchningar ──────────────────────────────────────
+      - type: conditional
+        conditions:
+          - condition: numeric_state
+            entity: sensor.grocery_offers_matches
+            above: 0
+        card:
+          type: custom:button-card
+          show_name: false
+          show_icon: false
+          show_state: false
+          entity: sensor.grocery_offers_matches
+          tap_action:
+            action: none
+          custom_fields:
+            body: |
+              [[[
+                const items = entity && entity.attributes.matched_items || [];
+                if (!items.length) return '<div></div>';
+                const rows = items.map(mi => {
+                  const best = mi.offers[0];
+                  const moreCount = mi.offers.length - 1;
+                  const moreLabel = moreCount > 0 ? ` +${moreCount} till` : '';
+                  return `<div style="display:flex;align-items:center;gap:12px;padding:10px 16px;border-bottom:1px solid rgba(255,255,255,0.06)">
+                    <div style="font-size:20px">🏷️</div>
+                    <div style="flex:1;min-width:0">
+                      <div style="font-size:13px;font-weight:700;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${mi.item}</div>
+                      <div style="font-size:11px;color:rgba(255,255,255,0.55);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${best.product} · ${best.store_name}${moreLabel}</div>
+                    </div>
+                    <div style="font-size:15px;font-weight:800;color:#fb8c00;white-space:nowrap;padding-left:8px">${best.price}</div>
+                  </div>`;
+                }).join('');
+                const count = items.length;
+                return `<div>
+                  <div style="padding:12px 16px 8px;font-size:11px;font-weight:700;color:rgba(255,255,255,0.45);text-transform:uppercase;letter-spacing:1px">🏷️ ${count} vara${count !== 1 ? 'r' : ''} på rea i din lista</div>
+                  ${rows}
+                </div>`;
+              ]]]
+          styles:
+            card:
+              - background: "rgba(13,71,161,0.30)"
+              - border-radius: 16px
+              - border: "1px solid rgba(251,140,0,0.35)"
+              - padding: 0
+              - overflow: hidden
+            custom_fields:
+              body:
+                - width: 100%
+
       # ── Inköpslista ───────────────────────────────────────────────
       - type: todo-list
         entity: todo.shopping_list
@@ -1405,48 +1454,310 @@ views:
               body:
                 - width: 100%
 
-      # ── Konfigurerade butiker – status ─────────────────────────────
-      - type: custom:button-card
-        show_name: false
-        show_icon: false
-        show_state: false
-        entity: sensor.grocery_offers_count
-        tap_action:
-          action: none
-        custom_fields:
-          body: |
-            [[[
-              const stores = entity.attributes.stores || [];
-              const lastUpdate = entity.attributes.last_update || '–';
-              if (!stores.length) {
-                return `<div style="padding:16px;text-align:center;color:#999;font-size:13px;">
-                  Inga butiker konfigurerade ännu.<br>
-                  Lägg till UUID under Inställningar nedan.
-                </div>`;
-              }
-              const rows = stores.map(s =>
-                `<div style="display:flex;justify-content:space-between;align-items:center;
-                            padding:8px 12px;border-bottom:1px solid rgba(0,0,0,0.05);">
-                  <div>
-                    <div style="font-weight:600;color:#333;font-size:13px;">${s.name}</div>
-                    <div style="font-size:11px;color:#999;">${s.uuid ? s.uuid.substring(0,8)+'...' : ''}</div>
-                  </div>
-                  <div style="font-weight:700;color:#e65100;font-size:18px;">${s.offer_count}</div>
-                </div>`
-              ).join('');
-              return `<div style="padding:8px 0 4px;">
-                <div style="font-size:12px;color:#999;padding:0 12px 8px;">Senast uppdaterad: ${lastUpdate}</div>
-                ${rows}
-              </div>`;
-            ]]]
-        styles:
-          card:
-            - border-radius: 16px
-            - border: "1px solid rgba(0,0,0,0.08)"
-            - padding: 0
+      # ── Erbjudanden per butik ──────────────────────────────────────
+      # Tillbaka-knapp – visas när en butik är vald
+      - type: conditional
+        conditions:
+          - condition: template
+            value_template: "{{ states('input_text.grocery_view_store') != '' }}"
+        card:
+          type: custom:button-card
+          show_name: false
+          show_icon: false
+          tap_action:
+            action: call-service
+            service: input_text.set_value
+            service_data:
+              entity_id: input_text.grocery_view_store
+              value: ""
           custom_fields:
-            body:
-              - width: 100%
+            lbl: |
+              [[[
+                const s = states['input_text.grocery_view_store']?.state || '';
+                return `‹ Alla butiker`;
+              ]]]
+          styles:
+            card:
+              - border-radius: 14px
+              - background: "rgba(251,140,0,0.12)"
+              - padding: "12px 16px"
+              - cursor: pointer
+            custom_fields:
+              lbl:
+                - font-size: 13px
+                - font-weight: 700
+                - color: "#fb8c00"
+                - text-align: left
+
+      # Erbjudandelist för vald butik – visas när en butik är vald
+      - type: conditional
+        conditions:
+          - condition: template
+            value_template: "{{ states('input_text.grocery_view_store') != '' }}"
+        card:
+          type: custom:button-card
+          entity: sensor.grocery_offers_count
+          show_name: false
+          show_icon: false
+          show_state: false
+          tap_action:
+            action: none
+          custom_fields:
+            body: |
+              [[[
+                const selected = states['input_text.grocery_view_store']?.state || '';
+                const perStore = entity.attributes.per_store_offers || {};
+                const storeOffers = perStore[selected] || [];
+                if (!storeOffers.length) {
+                  return `<div style="padding:24px;text-align:center;color:rgba(255,255,255,0.4);font-size:13px;">
+                    Inga erbjudanden för ${selected}
+                  </div>`;
+                }
+                const catMap = {};
+                storeOffers.forEach(o => {
+                  const cat = o.c || 'Övrigt';
+                  if (!catMap[cat]) catMap[cat] = [];
+                  catMap[cat].push(o);
+                });
+                const sections = Object.entries(catMap)
+                  .sort((a, b) => b[1].length - a[1].length)
+                  .map(([cat, offers]) => {
+                    const rows = offers.map(o =>
+                      `<div style="display:flex;justify-content:space-between;align-items:flex-start;
+                                   padding:7px 16px;border-bottom:1px solid rgba(255,255,255,0.05);">
+                        <div style="flex:1;min-width:0;padding-right:8px;">
+                          <div style="font-size:13px;color:#fff;font-weight:500;
+                                      overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${o.n}</div>
+                          <div style="font-size:11px;color:rgba(255,255,255,0.40);">${o.b || ''}</div>
+                        </div>
+                        <div style="font-weight:800;color:#fb8c00;font-size:15px;white-space:nowrap;">${o.p}</div>
+                      </div>`
+                    ).join('');
+                    return `<div>
+                      <div style="background:rgba(251,140,0,0.12);padding:7px 16px;
+                                   font-size:11px;font-weight:700;letter-spacing:0.8px;
+                                   color:#fb8c00;text-transform:uppercase;
+                                   display:flex;justify-content:space-between;">
+                        <span>${cat}</span>
+                        <span style="color:rgba(255,255,255,0.35);font-weight:400;">${offers.length}</span>
+                      </div>
+                      ${rows}
+                    </div>`;
+                  }).join('');
+                return `<div>
+                  <div style="padding:12px 16px 6px;font-size:12px;color:rgba(255,255,255,0.40);">
+                    ${storeOffers.length} erbjudanden · ${selected}
+                  </div>
+                  ${sections}
+                </div>`;
+              ]]]
+          styles:
+            card:
+              - border-radius: 16px
+              - border: "1px solid rgba(251,140,0,0.25)"
+              - padding: 0
+              - overflow: hidden
+            custom_fields:
+              body:
+                - width: 100%
+
+      # Butiksval – rubrik (visas när ingen butik är vald)
+      - type: conditional
+        conditions:
+          - condition: template
+            value_template: "{{ states('input_text.grocery_view_store') == '' }}"
+          - condition: numeric_state
+            entity: sensor.grocery_offers_count
+            above: 0
+        card:
+          type: custom:button-card
+          show_name: false
+          show_icon: false
+          tap_action:
+            action: none
+          custom_fields:
+            lbl: "🏪 Välj butik"
+          styles:
+            card:
+              - background: transparent
+              - padding: "8px 4px 2px"
+              - box-shadow: none
+            custom_fields:
+              lbl:
+                - font-size: 11px
+                - font-weight: 700
+                - color: "rgba(255,255,255,0.40)"
+                - text-transform: uppercase
+                - letter-spacing: 1px
+                - text-align: left
+
+      # Butiksval – butik 0
+      - type: conditional
+        conditions:
+          - condition: template
+            value_template: >-
+              {{ (state_attr('sensor.grocery_offers_count', 'stores') | default([]) | length) > 0
+                 and states('input_text.grocery_view_store') == '' }}
+        card:
+          type: custom:button-card
+          entity: sensor.grocery_offers_count
+          show_name: false
+          show_icon: false
+          show_state: false
+          tap_action:
+            action: call-service
+            service: pyscript.grocery_view_store
+            service_data:
+              store_index: 0
+          custom_fields:
+            row: |
+              [[[
+                const s = (entity.attributes.stores || [])[0];
+                if (!s) return '<div></div>';
+                return `<div style="display:flex;align-items:center;gap:14px;padding:14px 16px;cursor:pointer;">
+                  <div style="font-size:26px;">🏪</div>
+                  <div style="flex:1;min-width:0;">
+                    <div style="font-size:14px;font-weight:700;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${s.name}</div>
+                    <div style="font-size:11px;color:rgba(255,255,255,0.40);">${s.offer_count} erbjudanden</div>
+                  </div>
+                  <div style="font-size:20px;color:rgba(255,255,255,0.25);">›</div>
+                </div>`;
+              ]]]
+          styles:
+            card:
+              - border-radius: 14px
+              - border: "1px solid rgba(251,140,0,0.22)"
+              - padding: 0
+              - overflow: hidden
+            custom_fields:
+              row:
+                - width: 100%
+
+      # Butiksval – butik 1
+      - type: conditional
+        conditions:
+          - condition: template
+            value_template: >-
+              {{ (state_attr('sensor.grocery_offers_count', 'stores') | default([]) | length) > 1
+                 and states('input_text.grocery_view_store') == '' }}
+        card:
+          type: custom:button-card
+          entity: sensor.grocery_offers_count
+          show_name: false
+          show_icon: false
+          show_state: false
+          tap_action:
+            action: call-service
+            service: pyscript.grocery_view_store
+            service_data:
+              store_index: 1
+          custom_fields:
+            row: |
+              [[[
+                const s = (entity.attributes.stores || [])[1];
+                if (!s) return '<div></div>';
+                return `<div style="display:flex;align-items:center;gap:14px;padding:14px 16px;cursor:pointer;">
+                  <div style="font-size:26px;">🏪</div>
+                  <div style="flex:1;min-width:0;">
+                    <div style="font-size:14px;font-weight:700;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${s.name}</div>
+                    <div style="font-size:11px;color:rgba(255,255,255,0.40);">${s.offer_count} erbjudanden</div>
+                  </div>
+                  <div style="font-size:20px;color:rgba(255,255,255,0.25);">›</div>
+                </div>`;
+              ]]]
+          styles:
+            card:
+              - border-radius: 14px
+              - border: "1px solid rgba(251,140,0,0.22)"
+              - padding: 0
+              - overflow: hidden
+            custom_fields:
+              row:
+                - width: 100%
+
+      # Butiksval – butik 2
+      - type: conditional
+        conditions:
+          - condition: template
+            value_template: >-
+              {{ (state_attr('sensor.grocery_offers_count', 'stores') | default([]) | length) > 2
+                 and states('input_text.grocery_view_store') == '' }}
+        card:
+          type: custom:button-card
+          entity: sensor.grocery_offers_count
+          show_name: false
+          show_icon: false
+          show_state: false
+          tap_action:
+            action: call-service
+            service: pyscript.grocery_view_store
+            service_data:
+              store_index: 2
+          custom_fields:
+            row: |
+              [[[
+                const s = (entity.attributes.stores || [])[2];
+                if (!s) return '<div></div>';
+                return `<div style="display:flex;align-items:center;gap:14px;padding:14px 16px;cursor:pointer;">
+                  <div style="font-size:26px;">🏪</div>
+                  <div style="flex:1;min-width:0;">
+                    <div style="font-size:14px;font-weight:700;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${s.name}</div>
+                    <div style="font-size:11px;color:rgba(255,255,255,0.40);">${s.offer_count} erbjudanden</div>
+                  </div>
+                  <div style="font-size:20px;color:rgba(255,255,255,0.25);">›</div>
+                </div>`;
+              ]]]
+          styles:
+            card:
+              - border-radius: 14px
+              - border: "1px solid rgba(251,140,0,0.22)"
+              - padding: 0
+              - overflow: hidden
+            custom_fields:
+              row:
+                - width: 100%
+
+      # Butiksval – butik 3
+      - type: conditional
+        conditions:
+          - condition: template
+            value_template: >-
+              {{ (state_attr('sensor.grocery_offers_count', 'stores') | default([]) | length) > 3
+                 and states('input_text.grocery_view_store') == '' }}
+        card:
+          type: custom:button-card
+          entity: sensor.grocery_offers_count
+          show_name: false
+          show_icon: false
+          show_state: false
+          tap_action:
+            action: call-service
+            service: pyscript.grocery_view_store
+            service_data:
+              store_index: 3
+          custom_fields:
+            row: |
+              [[[
+                const s = (entity.attributes.stores || [])[3];
+                if (!s) return '<div></div>';
+                return `<div style="display:flex;align-items:center;gap:14px;padding:14px 16px;cursor:pointer;">
+                  <div style="font-size:26px;">🏪</div>
+                  <div style="flex:1;min-width:0;">
+                    <div style="font-size:14px;font-weight:700;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${s.name}</div>
+                    <div style="font-size:11px;color:rgba(255,255,255,0.40);">${s.offer_count} erbjudanden</div>
+                  </div>
+                  <div style="font-size:20px;color:rgba(255,255,255,0.25);">›</div>
+                </div>`;
+              ]]]
+          styles:
+            card:
+              - border-radius: 14px
+              - border: "1px solid rgba(251,140,0,0.22)"
+              - padding: 0
+              - overflow: hidden
+            custom_fields:
+              row:
+                - width: 100%
 
       # ── Butikssök – Nära mig ──────────────────────────────────────
       - type: button
