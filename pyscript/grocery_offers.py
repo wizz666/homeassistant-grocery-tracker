@@ -438,16 +438,15 @@ async def grocery_add_selected_store():
     # Lägg till om den inte redan finns
     current = _sget("input_text.grocery_store_uuids", "").strip()
     existing = [u.strip() for u in current.split(",") if u.strip()]
-    if uuid in existing:
-        log.info(f"[GroceryOffers] {store_name} redan konfigurerad")
-        return
+    already_configured = uuid in existing
 
-    existing.append(uuid)
-    new_val = ",".join(existing)
-    input_text.set_value(entity_id="input_text.grocery_store_uuids", value=new_val)
-    log.info(f"[GroceryOffers] Lade till: {store_name} ({uuid[:8]}...)")
+    if not already_configured:
+        existing.append(uuid)
+        new_val = ",".join(existing)
+        input_text.set_value(entity_id="input_text.grocery_store_uuids", value=new_val)
+        log.info(f"[GroceryOffers] Lade till: {store_name} ({uuid[:8]}...)")
 
-    # Hämta erbjudanden direkt för den nya butiken
+    # Hämta erbjudanden (alltid — säkerställer att cachen är uppdaterad)
     if _sbool("input_boolean.grocery_offers_enabled"):
         try:
             info   = await _fetch_store_info(uuid)
@@ -461,9 +460,30 @@ async def grocery_add_selected_store():
             }
             _update_count_sensor()
             await _update_match_sensor()
-            log.info(f"[GroceryOffers] {store_name}: {len(offers)} erbjudanden hämtade direkt")
+            if already_configured:
+                msg = f"{store_name} var redan tillagd — erbjudanden uppdaterade ({len(offers)} reas)."
+            else:
+                msg = f"{store_name} tillagd med {len(offers)} erbjudanden! 🏷️"
+            persistent_notification.create(
+                title="Grocery – Butik tillagd",
+                message=msg,
+                notification_id="grocery_store_added",
+            )
+            log.info(f"[GroceryOffers] {store_name}: {len(offers)} erbjudanden")
         except Exception as e:
-            log.error(f"[GroceryOffers] Fel vid direkt-hämtning för {store_name}: {e}")
+            log.error(f"[GroceryOffers] Fel vid hämtning för {store_name}: {e}")
+            persistent_notification.create(
+                title="Grocery – Fel vid tillägg",
+                message=f"Kunde inte hämta erbjudanden för {store_name}. Försök med Uppdatera-knappen.",
+                notification_id="grocery_store_added",
+            )
+    else:
+        if not already_configured:
+            persistent_notification.create(
+                title="Grocery – Butik tillagd",
+                message=f"{store_name} tillagd. Aktivera erbjudanden och klicka Uppdatera för att se reas.",
+                notification_id="grocery_store_added",
+            )
 
 
 @service
