@@ -117,11 +117,10 @@ const STYLES = `
   .divider::before, .divider::after { content: ""; flex: 1; border-top: 1px solid var(--divider-color); }
 
   /* Lagerlistvy */
+  .item-card { background: var(--secondary-background-color); border-radius: 12px; margin-bottom: 6px; overflow: hidden; }
   .inventory-item {
-    display: flex; align-items: center; gap: 10px; padding: 8px 0;
-    border-bottom: 1px solid var(--divider-color);
+    display: flex; align-items: center; gap: 10px; padding: 10px 12px;
   }
-  .inventory-item:last-child { border-bottom: none; }
   .item-emoji { font-size: 1.4em; width: 28px; text-align: center; flex-shrink: 0; }
   .item-details { flex: 1; min-width: 0; }
   .item-name { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -132,14 +131,15 @@ const STYLES = `
   .icon-btn { background: none; border: none; cursor: pointer; font-size: 1.2em; padding: 4px; border-radius: 4px; }
   .icon-btn:hover { background: var(--secondary-background-color); }
 
-  /* Tabs */
-  .tabs { display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 2px solid var(--divider-color); }
+  /* Tabs – pill nav */
+  .tabs { display: flex; gap: 4px; margin-bottom: 16px; background: var(--secondary-background-color); border-radius: 12px; padding: 4px; border-bottom: none; }
   .tab {
-    padding: 8px 14px; border: none; background: none; cursor: pointer;
-    font-size: .9em; color: var(--secondary-text-color);
-    border-bottom: 2px solid transparent; margin-bottom: -2px;
+    flex: 1; padding: 8px 4px; border: none; background: transparent; cursor: pointer;
+    font-size: .82em; color: var(--secondary-text-color);
+    border-radius: 8px; margin-bottom: 0; border-bottom: none;
+    font-weight: 500; transition: all .2s; text-align: center; white-space: nowrap;
   }
-  .tab.active { color: var(--primary-color); border-bottom-color: var(--primary-color); font-weight: 600; }
+  .tab.active { background: var(--primary-color); color: white; font-weight: 700; box-shadow: 0 2px 8px rgba(0,0,0,.22); }
 
   .empty { text-align: center; color: var(--secondary-text-color); padding: 24px 0; }
   .badge {
@@ -152,8 +152,8 @@ const STYLES = `
   /* Bäst-före inline-edit */
   .expiry-edit-row {
     display: flex; align-items: center; gap: 6px;
-    padding: 8px 0 8px 38px;
-    border-bottom: 1px solid var(--divider-color);
+    padding: 8px 12px 10px 50px;
+    border-top: 1px solid var(--divider-color);
   }
   .expiry-date-input {
     flex: 1; padding: 8px 10px; border-radius: 6px;
@@ -174,6 +174,29 @@ const STYLES = `
   /* Lågstock */
   .item-low-stock { color: #e65100; }
   .loc-tag { font-size: .72em; color: var(--secondary-text-color); margin-left: 4px; opacity: .8; }
+
+  /* Scan-välkomstvy */
+  .scan-welcome { display: flex; flex-direction: column; align-items: center; padding: 12px 0 20px; }
+  .scan-icon {
+    width: 80px; height: 80px; border-radius: 50%;
+    background: var(--primary-color); display: flex; align-items: center;
+    justify-content: center; font-size: 2.2em; margin-bottom: 14px;
+    box-shadow: 0 4px 20px rgba(0,0,0,.18);
+  }
+  .scan-title { font-size: 1.1em; font-weight: 700; color: var(--primary-text-color); margin: 0 0 4px; }
+  .scan-subtitle { font-size: .85em; color: var(--secondary-text-color); margin: 0 0 20px; }
+
+  /* Stor primärknapp */
+  .btn-lg { padding: 14px 20px; font-size: 1em; font-weight: 600; border-radius: 12px; }
+
+  /* Manuell-flik header */
+  .form-header { background: linear-gradient(135deg, #1b5e20, #43a047); border-radius: 12px; padding: 14px 16px; margin-bottom: 16px; }
+  .form-header-title { font-size: 1em; font-weight: 700; color: white; }
+  .form-header-sub { font-size: .8em; color: rgba(255,255,255,.82); margin-top: 3px; }
+
+  /* Lager-flik header */
+  .inventory-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .inventory-count { font-size: .82em; color: var(--secondary-text-color); }
 `;
 
 class GroceryScannerCard extends HTMLElement {
@@ -301,13 +324,12 @@ class GroceryScannerCard extends HTMLElement {
 
       // Android / Desktop: visa kameraknapp
       container.innerHTML = `
-        <div style="text-align:center; padding: 8px 0 16px;">
-          <div style="font-size:4em; margin-bottom:12px;">🔍</div>
-          <p style="color:var(--secondary-text-color); margin: 0 0 20px;">
-            Håll streckkoden framför kameran.
-          </p>
+        <div class="scan-welcome">
+          <div class="scan-icon">📷</div>
+          <div class="scan-title">Redo att skanna</div>
+          <div class="scan-subtitle">Håll streckkoden framför kameran</div>
         </div>
-        <button class="btn btn-primary btn-full" id="start-btn">📷 Starta kamera</button>
+        <button class="btn btn-primary btn-full btn-lg" id="start-btn">📷 Starta kamera</button>
       `;
       container.querySelector("#start-btn").addEventListener("click", () => this._initCamera(container));
 
@@ -552,6 +574,10 @@ class GroceryScannerCard extends HTMLElement {
   // ── MANUELL-fliken ────────────────────────────────────────────────────────
   _renderManualTab(container) {
     container.innerHTML = `
+      <div class="form-header">
+        <div class="form-header-title">✏️ Manuell inmatning</div>
+        <div class="form-header-sub">Lägg till varor utan streckkod</div>
+      </div>
       <div class="form-group">
         <label>Produktnamn *</label>
         <input type="text" id="m-name" placeholder="t.ex. Ägg, Havregryn, Smör">
@@ -596,7 +622,7 @@ class GroceryScannerCard extends HTMLElement {
         <label>Streckkod (valfritt)</label>
         <input type="text" id="m-barcode" placeholder="7310500143006" inputmode="numeric">
       </div>
-      <button class="btn btn-primary btn-full" id="m-add-btn">✅ Lägg till i lager</button>
+      <button class="btn btn-primary btn-full btn-lg" style="margin-top:4px" id="m-add-btn">✅ Lägg till i lager</button>
     `;
 
     container.querySelector("#m-add-btn").addEventListener("click", async () => {
@@ -700,31 +726,33 @@ class GroceryScannerCard extends HTMLElement {
           const locEmoji = this._locationEmoji(item.location);
           const isEditing = this._editingExpiryId === item.id;
           return `
-            <div class="inventory-item">
-              <span class="item-emoji">${emoji}</span>
-              <div class="item-details expiry-btn" data-id="${item.id}" style="cursor:pointer">
-                <div class="item-name">${item.name}
-                  <span style="color:var(--secondary-text-color);font-weight:normal">
-                    ×${item.quantity} ${item.unit}
-                  </span>
-                  ${locEmoji ? `<span class="loc-tag">${locEmoji}</span>` : ""}
+            <div class="item-card">
+              <div class="inventory-item">
+                <span class="item-emoji">${emoji}</span>
+                <div class="item-details expiry-btn" data-id="${item.id}" style="cursor:pointer">
+                  <div class="item-name">${item.name}
+                    <span style="color:var(--secondary-text-color);font-weight:normal">
+                      ×${item.quantity} ${item.unit}
+                    </span>
+                    ${locEmoji ? `<span class="loc-tag">${locEmoji}</span>` : ""}
+                  </div>
+                  ${expTxt
+                    ? `<div class="item-meta ${cls}">${expTxt} ✏️</div>`
+                    : `<div class="item-meta" style="color:var(--primary-color);font-size:.78em">📅 Lägg till bäst före-datum</div>`}
+                  ${isLow ? `<div class="item-meta item-low-stock">🟠 Lågt lager (min ${minQ} ${item.unit})</div>` : ""}
                 </div>
-                ${expTxt
-                  ? `<div class="item-meta ${cls}">${expTxt} ✏️</div>`
-                  : `<div class="item-meta" style="color:var(--primary-color);font-size:.78em">📅 Lägg till bäst före-datum</div>`}
-                ${isLow ? `<div class="item-meta item-low-stock">🟠 Lågt lager (min ${minQ} ${item.unit})</div>` : ""}
+                <div class="item-actions">
+                  <button class="icon-btn remove-btn" data-id="${item.id}" title="Ta bort">🗑️</button>
+                </div>
               </div>
-              <div class="item-actions">
-                <button class="icon-btn remove-btn" data-id="${item.id}" title="Ta bort">🗑️</button>
-              </div>
-            </div>
-            ${isEditing ? `
-            <div class="expiry-edit-row">
-              <input type="date" class="expiry-date-input" data-id="${item.id}"
-                value="${item.expiry_date || ''}">
-              <button class="icon-btn save-expiry-btn" data-id="${item.id}" title="Spara">✅</button>
-              <button class="icon-btn cancel-expiry-btn" title="Avbryt">✕</button>
-            </div>` : ""}`;
+              ${isEditing ? `
+              <div class="expiry-edit-row">
+                <input type="date" class="expiry-date-input" data-id="${item.id}"
+                  value="${item.expiry_date || ''}">
+                <button class="icon-btn save-expiry-btn" data-id="${item.id}" title="Spara">✅</button>
+                <button class="icon-btn cancel-expiry-btn" title="Avbryt">✕</button>
+              </div>` : ""}
+            </div>`;
         }).join("")}
     `;
 

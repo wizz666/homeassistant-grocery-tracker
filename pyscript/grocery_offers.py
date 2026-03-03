@@ -309,6 +309,11 @@ def _update_count_sensor():
         "store_count":   len(stores_summary),
         "last_update":   datetime.now().strftime("%Y-%m-%d %H:%M"),
         "name_to_uuid":  name_to_uuid,
+    })
+    # Stora data i eget sensor för att hålla grocery_offers_count under 16KB
+    state.set("sensor.grocery_offers_detail", total, {
+        "friendly_name": "Grocery – Erbjudandedetaljer",
+        "icon":          "mdi:tag-multiple",
         "categories":        _build_category_data(),
         "per_store_offers":  _build_per_store_data(),
     })
@@ -621,6 +626,103 @@ async def grocery_add_selected_store():
 
 
 @service
+async def grocery_add_store_by_index(store_index=0):
+    """Lägg till hittad butik via index – tap-to-add utan dropdown."""
+    stores = (state.getattr("sensor.grocery_found_stores") or {}).get("stores", [])
+    try:
+        idx = int(store_index)
+    except (ValueError, TypeError):
+        idx = -1
+    if not (0 <= idx < len(stores)):
+        log.warning(f"[GroceryOffers] Ogiltigt hittad-butiksindex: {idx}")
+        return
+    store = stores[idx]
+    uuid = store.get("uuid", "")
+    store_name = store.get("name", f"Butik {idx}")
+    if not uuid:
+        log.warning(f"[GroceryOffers] Inget UUID för hittad butik index {idx}")
+        return
+
+    existing = _get_configured_uuids()
+    already_configured = uuid in existing
+    if not already_configured:
+        existing.append(uuid)
+        input_text.set_value(
+            entity_id="input_text.grocery_store_uuids",
+            value=",".join(existing),
+        )
+        log.info(f"[GroceryOffers] Lade till: {store_name} ({uuid[:8]}...)")
+
+    if _sbool("input_boolean.grocery_offers_enabled"):
+        try:
+            info   = await _fetch_store_info(uuid)
+            offers = await _fetch_store_offers(uuid)
+            from datetime import datetime
+            _offers_cache[uuid] = {
+                "name":       info.get("name", store_name) if info else store_name,
+                "chain":      info.get("chainName", "") if info else "",
+                "offers":     offers,
+                "fetched_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
+            }
+            _update_count_sensor()
+            await _update_match_sensor()
+            if already_configured:
+                msg = f"{store_name} var redan tillagd — erbjudanden uppdaterade ({len(offers)} reas)."
+            else:
+                msg = f"{store_name} tillagd med {len(offers)} erbjudanden! 🏷️"
+            persistent_notification.create(
+                title="Grocery – Butik tillagd",
+                message=msg,
+                notification_id="grocery_store_added",
+            )
+        except Exception as e:
+            log.error(f"[GroceryOffers] Fel vid hämtning för {store_name}: {e}")
+            persistent_notification.create(
+                title="Grocery – Fel vid tillägg",
+                message=f"Kunde inte hämta erbjudanden för {store_name}.",
+                notification_id="grocery_store_added",
+            )
+    else:
+        if not already_configured:
+            persistent_notification.create(
+                title="Grocery – Butik tillagd",
+                message=f"{store_name} tillagd. Aktivera erbjudanden och klicka Uppdatera.",
+                notification_id="grocery_store_added",
+            )
+
+
+@service
+async def grocery_remove_store_by_index(store_index=0):
+    """Ta bort konfigurerad butik via index – direkt från butiksrad i dashboarden."""
+    attrs = state.getattr("sensor.grocery_offers_count") or {}
+    stores = attrs.get("stores", [])
+    try:
+        idx = int(store_index)
+    except (ValueError, TypeError):
+        idx = -1
+    if not (0 <= idx < len(stores)):
+        log.warning(f"[GroceryOffers] Ogiltigt konfig-butiksindex: {idx}")
+        return
+
+    uuid = stores[idx].get("uuid", "")
+    store_name = stores[idx].get("name", f"Butik {idx}")
+    if not uuid:
+        log.warning(f"[GroceryOffers] Inget UUID för konfig-butik index {idx}")
+        return
+
+    # Ta bort från konfigurerade listan
+    current = _sget("input_text.grocery_store_uuids", "").strip()
+    existing = [u.strip() for u in current.split(",") if u.strip() and u.strip() != uuid]
+    input_text.set_value(entity_id="input_text.grocery_store_uuids", value=",".join(existing))
+
+    # Ta bort från cache och uppdatera sensorer
+    if uuid in _offers_cache:
+        del _offers_cache[uuid]
+    _update_count_sensor()
+    await _update_match_sensor()
+    log.info(f"[GroceryOffers] Tog bort: {store_name}")
+
+
 async def grocery_remove_selected_store():
     """Ta bort vald butik från input_select.grocery_configured_picker."""
     selected = _sget("input_select.grocery_configured_picker", "").strip()
@@ -631,13 +733,20 @@ async def grocery_remove_selected_store():
     # Extrahera butiksnamn (allt före " (")
     store_name = selected.split(" (")[0].strip()
 
-    # Slå upp UUID från sensor-attribut
-    name_to_uuid = state.get("sensor.grocery_offers_count") and \
-                   (state.getattr("sensor.grocery_offers_count") or {}).get("name_to_uuid", {})
-    uuid = (name_to_uuid or {}).get(store_name, "")
+    # Slå upp UUID direkt från in-memory cache (undviker 16KB-gränsen på sensor-attribut)
+    # OBS: generator expression stöds ej i pyscript → använd loop
+    uuid = ""
+    for uid, v in _offers_cache.items():
+        if v.get("name", uid[:8]) == store_name:
+            uuid = uid
+            break
+    if not uuid:
+        # Fallback: leta i input_text.grocery_store_uuids via name_to_uuid i sensorattribut
+        attrs = state.getattr("sensor.grocery_offers_count") or {}
+        uuid = (attrs.get("name_to_uuid") or {}).get(store_name, "")
 
     if not uuid:
-        log.warning(f"[GroceryOffers] Kunde inte hitta UUID för '{store_name}'")
+        log.warning(f"[GroceryOffers] Kunde inte hitta UUID för '{store_name}' (cache: {list(_offers_cache.keys())})")
         return
 
     # Ta bort från konfigurerade listan
@@ -678,6 +787,13 @@ async def _startup():
         "stores":        [],
         "store_count":   0,
         "last_update":   "–",
+        "name_to_uuid":  {},
+    })
+    state.set("sensor.grocery_offers_detail", 0, {
+        "friendly_name":    "Grocery – Erbjudandedetaljer",
+        "icon":             "mdi:tag-multiple",
+        "categories":       [],
+        "per_store_offers": {},
     })
     state.set("sensor.grocery_offers_matches", 0, {
         "friendly_name":          "Grocery – Reas som matchar inköpslistan",
