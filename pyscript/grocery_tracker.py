@@ -28,6 +28,7 @@ SHOPPING_LIST_ENTITY = "todo.shopping_list"
 SHOPPING_LIST_FILE   = "/config/.shopping_list.json"
 OFF_API = "https://world.openfoodfacts.org/api/v2/product/{barcode}.json"
 OFF_HEADERS = {"User-Agent": "HomeAssistant-GroceryTracker/1.6 (homeassistant)"}
+SPOONACULAR_BASE = "https://api.spoonacular.com"
 
 TIBBER_PULSE_CONSUMPTION = "sensor.tibber_pulse_dammtorpsgatan_22_accumulated_consumption"
 TIBBER_PULSE_POWER = "sensor.tibber_pulse_dammtorpsgatan_22_power"
@@ -555,25 +556,156 @@ async def _daily_expiry_check():
         await _do_suggest_recipes(expired + expiring)
 
 
-# ─── Receptförslag via LLM ───────────────────────────────────────────────────
+# ─── Spoonacular API ─────────────────────────────────────────────────────────
+
+async def _call_spoonacular(ingredients, api_key):
+    """Hämta 3 receptförslag från Spoonacular baserat på ingredienslista."""
+    import aiohttp
+    import re as _re
+
+    ingredients_str = ",+".join([i.replace(" ", "+") for i in ingredients[:10]])
+    find_params = {
+        "ingredients": ingredients_str,
+        "number": 3,
+        "ranking": 1,
+        "ignorePantry": "true",
+        "apiKey": api_key,
+    }
+
+    recipes = []
+    try:
+        async with aiohttp.ClientSession() as session:
+            # Steg 1: findByIngredients
+            async with session.get(
+                f"{SPOONACULAR_BASE}/recipes/findByIngredients",
+                params=find_params,
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as resp:
+                if resp.status == 402:
+                    log.warning("[GroceryTracker] Spoonacular: daglig kvot förbrukad (402)")
+                    return None
+                if resp.status != 200:
+                    log.warning(f"[GroceryTracker] Spoonacular findByIngredients: {resp.status}")
+                    return None
+                results = await resp.json(content_type=None)
+
+            if not results:
+                return None
+
+            # Steg 2: hämta detaljer per recept
+            for recipe in results[:3]:
+                recipe_id = recipe.get("id")
+                if not recipe_id:
+                    continue
+                async with session.get(
+                    f"{SPOONACULAR_BASE}/recipes/{recipe_id}/information",
+                    params={"apiKey": api_key, "includeNutrition": "false"},
+                    timeout=aiohttp.ClientTimeout(total=15),
+                ) as resp:
+                    if resp.status == 200:
+                        info = await resp.json(content_type=None)
+                        recipes.append({
+                            "title": recipe.get("title", ""),
+                            "used": [i.get("name", "") for i in recipe.get("usedIngredients", [])],
+                            "missed": [i.get("name", "") for i in recipe.get("missedIngredients", [])],
+                            "ready_in": info.get("readyInMinutes", "?"),
+                            "servings": info.get("servings", "?"),
+                            "instructions": info.get("instructions", "") or "",
+                            "source_url": info.get("sourceUrl", ""),
+                        })
+    except Exception as e:
+        log.warning(f"[GroceryTracker] Spoonacular-anrop misslyckades: {e}")
+        return None
+
+    if not recipes:
+        return None
+
+    # Formatera som markdown (samma format som LLM-svar)
+    lines = []
+    for i, r in enumerate(recipes, 1):
+        lines.append(f"### {i}. {r['title']}")
+        lines.append(f"⏱️ {r['ready_in']} min · 🍽️ {r['servings']} portioner")
+        if r["used"]:
+            lines.append(f"✅ Ingredienser du har: {', '.join(r['used'])}")
+        if r["missed"]:
+            lines.append(f"🛒 Köp också: {', '.join(r['missed'])}")
+        # Rensa HTML-taggar ur instruktioner
+        instructions = _re.sub(r'<[^>]+>', '', r["instructions"]).strip()
+        if instructions:
+            instructions = instructions[:600] + ("..." if len(instructions) > 600 else "")
+            lines.append(f"\n{instructions}")
+        if r["source_url"]:
+            lines.append(f"\n🔗 [Fullständigt recept]({r['source_url']})")
+        lines.append("")
+
+    return "\n".join(lines).strip()
+
+
+async def _translate_to_swedish(text):
+    """Översätt recepttext till svenska. Försöker Groq först, faller tillbaka på ha_ai_task."""
+    prompt = (
+        "Översätt följande recepttext till svenska. "
+        "Behåll exakt samma markdown-formatering (###, emojis, radbrytningar, fetstil). "
+        "Översätt INTE URL:er. Länktexten 'Fullständigt recept' behålls på svenska. "
+        "Svara BARA med den översatta texten — inget annat.\n\n"
+        f"{text}"
+    )
+
+    # Försök Groq (gratis, snabb)
+    api_key = _sget("input_text.ai_hub_groq_key", "").strip()
+    if not api_key:
+        api_key = _sget("input_text.grocery_api_key_groq", "").strip()
+    if api_key:
+        translated = await _call_openai_compatible(
+            prompt, api_key,
+            url="https://api.groq.com/openai/v1/chat/completions",
+            model="llama-3.3-70b-versatile",
+            provider_name="Groq (översättning)",
+        )
+        if translated:
+            return translated.strip()
+
+    # Fallback: ha_ai_task (Google AI — kräver ingen nyckel)
+    log.info("[GroceryTracker] Groq-nyckel saknas — översätter via ha_ai_task")
+    translated = await _call_ha_ai_task(prompt)
+    return translated.strip() if translated else text
+
+
+# ─── Receptförslag via LLM / Spoonacular ─────────────────────────────────────
 
 async def _do_suggest_recipes(candidates, provider_override=None):
-    """Intern hjälpare: bygg prompt och skicka receptförslag."""
+    """Intern hjälpare: hämta receptförslag via Spoonacular eller LLM."""
     if not candidates:
         return
     ingredients = list({item["name"] for item in candidates})
-    prompt = (
-        f"Jag har dessa matvaror som snart går ut eller redan har gått ut: "
-        f"{', '.join(ingredients)}. "
-        f"Föreslå 2-3 enkla och goda recept som använder dessa ingredienser. "
-        f"Håll varje recept kort: namn, huvudingredienser och en mening om tillagning. "
-        f"Svara på svenska. "
-        f"Lägg till allra sist, på en ensam rad (inga radbrytningar efter): "
-        f"ENERGI: Xmin REDSKAP: spis (eller ugn eller mikro) "
-        f"där X är uppskattad total tillagningstid i minuter. "
-        f"Exempel: ENERGI: 25min REDSKAP: spis"
-    )
-    result = await _call_recipe_llm(prompt, provider_override=provider_override)
+
+    provider = provider_override or _sget("input_select.grocery_recipe_provider", "disabled")
+
+    if provider == "spoonacular":
+        api_key = _sget("input_text.grocery_api_key_spoonacular", "").strip()
+        if not api_key:
+            persistent_notification.create(
+                title="🍴 Spoonacular – nyckel saknas",
+                message="Ange din Spoonacular API-nyckel i Inställningar-fliken.",
+                notification_id="grocery_recipes",
+            )
+            return
+        result = await _call_spoonacular(ingredients, api_key)
+        if result:
+            result = await _translate_to_swedish(result)
+    else:
+        prompt = (
+            f"Jag har dessa matvaror som snart går ut eller redan har gått ut: "
+            f"{', '.join(ingredients)}. "
+            f"Föreslå 2-3 enkla och goda recept som använder dessa ingredienser. "
+            f"Håll varje recept kort: namn, huvudingredienser och en mening om tillagning. "
+            f"Svara på svenska. "
+            f"Lägg till allra sist, på en ensam rad (inga radbrytningar efter): "
+            f"ENERGI: Xmin REDSKAP: spis (eller ugn eller mikro) "
+            f"där X är uppskattad total tillagningstid i minuter. "
+            f"Exempel: ENERGI: 25min REDSKAP: spis"
+        )
+        result = await _call_recipe_llm(prompt, provider_override=provider_override)
     if result:
         import re as _re
         import datetime as _dt
@@ -663,12 +795,13 @@ async def _do_suggest_recipes(candidates, provider_override=None):
 
 # Leverantör → input_text-entity för API-nyckel (per leverantör, egna Grocery-nycklar)
 _PROVIDER_KEY_ENTITY = {
-    "groq":       "input_text.grocery_api_key_groq",
-    "gemini":     "input_text.grocery_api_key_gemini",
-    "openrouter": "input_text.grocery_api_key_openrouter",
-    "mistral":    "input_text.grocery_api_key_mistral",
-    "openai":     "input_text.grocery_api_key_openai",
-    "anthropic":  "input_text.grocery_api_key_anthropic",
+    "groq":         "input_text.grocery_api_key_groq",
+    "gemini":       "input_text.grocery_api_key_gemini",
+    "openrouter":   "input_text.grocery_api_key_openrouter",
+    "mistral":      "input_text.grocery_api_key_mistral",
+    "openai":       "input_text.grocery_api_key_openai",
+    "anthropic":    "input_text.grocery_api_key_anthropic",
+    "spoonacular":  "input_text.grocery_api_key_spoonacular",
 }
 
 # AI Hub-nycklar (prioriteras framför egna Grocery-nycklar)

@@ -14,7 +14,6 @@ views:
     icon: mdi:barcode-scan
     cards:
 
-      # ── Header med shimmer-animation ──────────────────────────────
       - type: custom:button-card
         name: "Matlagret"
         label: Skanna varor · Hantera lager · Minska svinn
@@ -318,7 +317,6 @@ views:
     icon: mdi:cart
     cards:
 
-      # ── Header ────────────────────────────────────────────────────
       - type: custom:button-card
         name: "Inköpslista"
         label: Bocka av varor · Tryck "Klar" när du är färdig i butiken
@@ -493,7 +491,6 @@ views:
     icon: mdi:chef-hat
     cards:
 
-      # ── Header ────────────────────────────────────────────────────
       - type: custom:button-card
         name: "Receptförslag"
         label: AI-recept baserade på vad som snart går ut
@@ -691,6 +688,56 @@ views:
                   - font-size: 14px
                   - font-weight: 700
                   - color: white
+
+      # ── Spoonacular (topp-alternativ med riktiga recept) ─────────
+      - type: custom:button-card
+        name: "🍴  Spoonacular — riktiga recept med instruktioner"
+        show_icon: false
+        tap_action:
+          action: none
+        styles:
+          card:
+            - background: "rgba(255, 152, 0, 0.10)"
+            - border-left: "3px solid #ff9800"
+            - border-radius: 10px
+            - box-shadow: none
+            - padding: "8px 14px"
+          name:
+            - font-size: 11px
+            - font-weight: 800
+            - letter-spacing: "1.2px"
+            - color: "#ff9800"
+            - text-align: left
+
+      - type: custom:button-card
+        name: Spoonacular
+        label: "Riktiga recept · steg-för-steg · bilder · 150 anrop/dag gratis"
+        show_label: true
+        show_icon: false
+        tap_action:
+          action: call-service
+          service: pyscript.grocery_suggest_recipes
+          service_data:
+            provider_override: spoonacular
+        extra_styles: |
+          @keyframes glow-spoon {
+            0%, 100% { box-shadow: 0 4px 16px rgba(255,152,0,0.45); }
+            50%      { box-shadow: 0 6px 32px rgba(255,152,0,0.80); }
+          }
+        styles:
+          card:
+            - background: "linear-gradient(135deg, #ff9800, #e65100)"
+            - border-radius: 16px
+            - padding: "18px 16px"
+            - "{% if states('input_select.grocery_recipe_provider') == 'spoonacular' %}animation: glow-spoon 2.5s ease-in-out infinite{% else %}box-shadow: 0 3px 14px rgba(255,152,0,0.40){% endif %}"
+          name:
+            - font-size: 16px
+            - font-weight: 800
+            - color: white
+          label:
+            - font-size: 11px
+            - color: "rgba(255,255,255,0.80)"
+            - margin-top: 4px
 
       # ── GRATIS-sektion ────────────────────────────────────────────
       - type: custom:button-card
@@ -951,7 +998,6 @@ views:
     icon: mdi:cog
     cards:
 
-      # ── Header ────────────────────────────────────────────────────
       - type: custom:button-card
         name: "Inställningar"
         label: AI-leverantör och API-nycklar för receptförslag
@@ -1072,6 +1118,22 @@ views:
           card_mod:
             style: |
               ha-card { border-radius: 14px; border-left: 4px solid #d97706; }
+
+      # ── Spoonacular API-nyckel ────────────────────────────────────
+      - type: conditional
+        conditions:
+          - condition: state
+            entity: input_select.grocery_recipe_provider
+            state: spoonacular
+        card:
+          type: entities
+          title: "🍴 Spoonacular – riktiga recept (150 anrop/dag gratis)"
+          entities:
+            - entity: input_text.grocery_api_key_spoonacular
+              name: API-nyckel
+          card_mod:
+            style: |
+              ha-card { border-radius: 14px; border-left: 4px solid #ff9800; }
 
       # ── Testknapp ─────────────────────────────────────────────────
       - type: conditional
@@ -1287,7 +1349,6 @@ views:
     icon: mdi:tag-multiple-outline
     cards:
 
-      # ── Header ────────────────────────────────────────────────────
       - type: custom:button-card
         name: "Erbjudanden"
         label: Veckans reas från dina butiker · Matpriskollen
@@ -2343,7 +2404,6 @@ views:
     icon: mdi:recycle
     cards:
 
-      # ── Header ────────────────────────────────────────────────────
       - type: custom:button-card
         name: "Svinndagbok"
         label: Historik över slängda varor · Minska matsvinn

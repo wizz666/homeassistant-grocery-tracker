@@ -112,9 +112,10 @@ input_select:
     initial: "– Inga butiker konfigurerade –"
 
   grocery_recipe_provider:
-    name: "Receptförslag – AI-leverantör"
+    name: "Receptförslag – leverantör"
     options:
       - disabled
+      - spoonacular
       - groq
       - openrouter
       - mistral
@@ -160,6 +161,12 @@ input_text:
     mode: password
     max: 200
     icon: mdi:key
+
+  grocery_api_key_spoonacular:
+    name: "API-nyckel – Spoonacular"
+    mode: password
+    max: 200
+    icon: mdi:food-fork-drink
 
   # ── Erbjudanden – butikskonfiguration ───────────────────────────────────────
   grocery_store_uuids:
