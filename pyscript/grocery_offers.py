@@ -486,7 +486,35 @@ async def grocery_find_stores(lat=None, lon=None, radius=25, search=None):
                     return
                 stores_raw = await resp.json(content_type=None)
 
-        stores_raw = stores_raw if isinstance(stores_raw, list) else []
+            stores_raw = stores_raw if isinstance(stores_raw, list) else []
+
+            # matpriskollen.se's /search?q= endpoint returns [] for every query
+            # since 2026-09 (server-side, not fixable on our end). Fall back to
+            # a wide coordinate search around home + local name filtering.
+            if search and not stores_raw:
+                home_lat = state.get("zone.home.latitude")
+                home_lon = state.get("zone.home.longitude")
+                if home_lat and home_lon:
+                    fallback_url = f"{OFFERS_API}?lat={home_lat}&lon={home_lon}&radius=100"
+                    async with sess.get(
+                        fallback_url, headers=headers, timeout=aiohttp.ClientTimeout(total=10)
+                    ) as resp2:
+                        if resp2.status == 200:
+                            wide_raw = await resp2.json(content_type=None)
+                            wide_raw = wide_raw if isinstance(wide_raw, list) else []
+                            needle = _normalize(search)
+                            stores_raw = [
+                                s for s in wide_raw
+                                if needle in _normalize(s.get("name", ""))
+                            ]
+                            log.info(
+                                f"[GroceryOffers] matpriskollen /search gav 0 träffar för '{search}' "
+                                f"— föll tillbaka på koordinatsökning + lokal filtrering ({len(stores_raw)} träffar)"
+                            )
+                        else:
+                            log.warning(f"[GroceryOffers] find_stores fallback HTTP {resp2.status}")
+                else:
+                    log.warning("[GroceryOffers] find_stores fallback: zone.home saknar koordinater")
         result = [
             {
                 "uuid":       s.get("key", ""),
